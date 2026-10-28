@@ -1,0 +1,24 @@
+{
+  "name": "goblin-pension-plan",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Top-down action RPG about a goblin building a self-sufficient burrow under Bellmarket.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@fontsource/pixelify-sans": "^5.3.0",
+    "@fontsource/silkscreen": "^5.3.0"
+  }
+}

@@ -6,6 +6,7 @@ A top-down action RPG in strict TypeScript, Vite, and raw Canvas 2D. Read `docs/
 - `npm run dev`: dev server on port 5180 (also `.claude/launch.json` → "dev")
 - `npm test`: Vitest. Run it after any change to `src/data/`, `src/world/maps/`, or creature, human, event, or inventory logic.
 - `npm run typecheck`: must stay clean. `strict` and `noUncheckedIndexedAccess` are on.
+- Pushing to `main` deploys: `.github/workflows/deploy.yml` runs the tests and the build, then publishes `dist/` to https://ycgnem.github.io/goblin-pension-plan/. Vite builds with `base: './'`, so keep asset paths relative (no leading `/`).
 
 ## Rules
 - **TypeScript only.** No `.js` source files. No runtime dependencies without a strong reason (the brief says to avoid them). The two Fontsource fonts are the exception.

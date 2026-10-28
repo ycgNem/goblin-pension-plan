@@ -4,6 +4,8 @@ A top-down action RPG about a low-ranking goblin turning a soggy maintenance alc
 
 This morning, the Adventurers' Guild put the goblin's home on its survey list. Only a chartered burrow is off the Guild's books, and charters come from the Goblin Cooperative, with paperwork.
 
+**Play it:** [ycgnem.github.io/goblin-pension-plan](https://ycgnem.github.io/goblin-pension-plan/), in a desktop browser with a keyboard and mouse.
+
 **Status:** M0–M5 are done, plus a presentation pass: a title screen, an illustrated story intro, a chapter card, dialogue with portraits, lighting, music, and a lived-in Burrow. You can play from the title screen through Grubb's letter, the first adventurer contract, building the first Charter steps, and meeting Grubb. The Pumpworks boss, the generator, trading, and Stamp #1 are M6. See [docs/MILESTONES.md](docs/MILESTONES.md).
 
 ## Run it
@@ -19,6 +21,8 @@ npm run dev        # http://localhost:5180
 | `npm test` | Vitest: data, maps, collision, pathing, combat, creatures, inventory, saves, crafting, production, stealth, events, story |
 | `npm run typecheck` | Strict TypeScript check |
 | `npm run build` | Typecheck, then production build into `dist/` |
+
+Every push to `main` runs the tests and the build, then publishes `dist/` to GitHub Pages ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)).
 
 ## Controls
 

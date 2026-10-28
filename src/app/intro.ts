@@ -1,7 +1,7 @@
 import { audio } from '../audio/audio';
 import type { Input } from '../core/input';
 import { clamp } from '../core/math';
-import { VIEW_H, VIEW_W } from '../core/screen';
+import { BASE_H, BASE_W, stageOrigin, VIEW_H, VIEW_W } from '../core/screen';
 import { CHAPTER_CARD, GUILD_SURVEY, INTRO } from '../data/story';
 import { GOBLIN, HUMAN_PALETTES, humanSprite } from '../render/art/characters';
 import { drawFrameVignette, Lighting, type Light } from '../render/lighting';
@@ -65,7 +65,7 @@ export class IntroScreen {
       j.vy += 200 * dt;
       j.y += j.vy * dt;
     }
-    for (let i = this.junk.length - 1; i >= 0; i--) if (this.junk[i]!.y > VIEW_H) this.junk.splice(i, 1);
+    for (let i = this.junk.length - 1; i >= 0; i--) if (this.junk[i]!.y > BASE_H) this.junk.splice(i, 1);
   }
 
   private next(): void {
@@ -80,9 +80,18 @@ export class IntroScreen {
   render(ctx: CanvasRenderingContext2D, hud: Hud): void {
     const panel = INTRO[Math.min(this.index, INTRO.length - 1)]!;
     const info = panelArt(panel.art);
+    // Panels are illustrations at the base size, centered, with black around them.
+    const stage = stageOrigin();
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.save();
+    ctx.translate(stage.x, stage.y);
+    ctx.beginPath();
+    ctx.rect(0, 0, BASE_W, BASE_H);
+    ctx.clip();
     // A slow push in.
     const drift = Math.round(Math.min(8, this.t * 1.2));
-    ctx.drawImage(info.canvas, -drift, -Math.round(drift / 2), VIEW_W + drift * 2, VIEW_H + drift);
+    ctx.drawImage(info.canvas, -drift, -Math.round(drift / 2), BASE_W + drift * 2, BASE_H + drift);
     const lights: Light[] = [];
     const t = this.t;
 
@@ -143,27 +152,29 @@ export class IntroScreen {
         lights.push({ x: 240, y: 110, r: 260, color: '#f0e0c0', a: 0.95 });
         break;
     }
-    this.lighting.render(ctx, { x: 0, y: 0 }, panel.art === 'notice' || panel.art === 'charter' ? '#5a4a40' : '#3a3444', lights, t);
+    this.lighting.render(ctx, { x: 0, y: 0 }, panel.art === 'notice' || panel.art === 'charter' ? '#5a4a40' : '#56506a', lights, t);
     this.lighting.glow(ctx, { x: 0, y: 0 }, lights, t, 0.15);
+    ctx.restore();
     drawFrameVignette(ctx);
 
-    // Letterbox bars.
+    // Letterbox bars, across the whole view.
     ctx.fillStyle = '#050505';
-    ctx.fillRect(0, 0, VIEW_W, 14);
-    ctx.fillRect(0, VIEW_H - BAR, VIEW_W, BAR);
+    ctx.fillRect(0, 0, VIEW_W, stage.y + 14);
+    ctx.fillRect(0, stage.y + BASE_H - BAR, VIEW_W, VIEW_H - (stage.y + BASE_H - BAR));
 
     hud.begin();
+    hud.origin(stage.x, stage.y);
     if (panel.art === 'notice') this.drawNotice(hud);
     if (panel.art === 'charter') this.drawCharter(hud);
 
-    const lines = hud.wrap(panel.text, VIEW_W - 80, 9);
+    const lines = hud.wrap(panel.text, BASE_W - 80, 9);
     let left = Math.floor(this.shown);
     lines.forEach((line, i) => {
-      hud.text(line.slice(0, Math.max(0, left)), VIEW_W / 2, VIEW_H - BAR + 9 + i * 12, { size: 9, align: 'center', color: '#ece4d0' });
+      hud.text(line.slice(0, Math.max(0, left)), BASE_W / 2, BASE_H - BAR + 9 + i * 12, { size: 9, align: 'center', color: '#ece4d0' });
       left -= line.length + 1;
     });
-    for (let i = 0; i < INTRO.length; i++) hud.fill(VIEW_W / 2 - INTRO.length * 4 + i * 8, VIEW_H - 8, 5, 2, i === this.index ? UI.gold : '#3a3830');
-    keyHints(hud, [['SPACE', 'Next'], ['ESC', 'Skip']], VIEW_W - 8, 2, 'right');
+    for (let i = 0; i < INTRO.length; i++) hud.fill(BASE_W / 2 - INTRO.length * 4 + i * 8, BASE_H - 8, 5, 2, i === this.index ? UI.gold : '#3a3830');
+    keyHints(hud, [['SPACE', 'Next'], ['ESC', 'Skip']], BASE_W - 8, 2, 'right');
 
     const fadeIn = clamp(1 - this.t / FADE, 0, 1);
     const fadeOut = this.leaving >= 0 ? clamp(this.leaving / FADE, 0, 1) : 0;
@@ -172,19 +183,19 @@ export class IntroScreen {
 
   private drawNotice(hud: Hud): void {
     const w = 220;
-    const x = (VIEW_W - w) / 2;
+    const x = (BASE_W - w) / 2;
     const y = 40;
     hud.panel(x, y, w, 140, 'paper');
-    hud.fill(VIEW_W / 2 - 1, y + 3, 3, 3, '#c03030');
-    hud.text("ADVENTURERS' GUILD OF BELLMARKET", VIEW_W / 2, y + 12, { font: 'head', size: 6, color: UI.inkDim, align: 'center', edge: 'none' });
-    hud.text(GUILD_SURVEY.heading, VIEW_W / 2, y + 26, { font: 'head', size: 12, color: UI.ink, align: 'center', edge: 'none' });
-    GUILD_SURVEY.lines.slice(0, 2).forEach((l, i) => hud.text(l, VIEW_W / 2, y + 50 + i * 12, { size: 8, color: '#3a2a1a', align: 'center', edge: 'none' }));
-    hud.text('Reward: 4 silver. Bring a lantern.', VIEW_W / 2, y + 80, { size: 7, color: UI.inkDim, align: 'center', edge: 'none' });
+    hud.fill(BASE_W / 2 - 1, y + 3, 3, 3, '#c03030');
+    hud.text("ADVENTURERS' GUILD OF BELLMARKET", BASE_W / 2, y + 12, { font: 'head', size: 6, color: UI.inkDim, align: 'center', edge: 'none' });
+    hud.text(GUILD_SURVEY.heading, BASE_W / 2, y + 26, { font: 'head', size: 12, color: UI.ink, align: 'center', edge: 'none' });
+    GUILD_SURVEY.lines.slice(0, 2).forEach((l, i) => hud.text(l, BASE_W / 2, y + 50 + i * 12, { size: 8, color: '#3a2a1a', align: 'center', edge: 'none' }));
+    hud.text('Reward: 4 silver. Bring a lantern.', BASE_W / 2, y + 80, { size: 7, color: UI.inkDim, align: 'center', edge: 'none' });
     if (this.t > 1.1) {
       const k = clamp((this.t - STAMP_AT) / 0.12, 0, 1);
       const s = 1 + (1 - k) * 1.5;
       hud.ui.save();
-      hud.ui.translate(VIEW_W / 2 + 44, y + 112);
+      hud.ui.translate(BASE_W / 2 + 44, y + 112);
       hud.ui.rotate(-0.12);
       hud.ui.scale(s, s);
       hud.ui.globalAlpha = k;
@@ -202,22 +213,22 @@ export class IntroScreen {
 
   private drawCharter(hud: Hud): void {
     const w = 210;
-    const x = (VIEW_W - w) / 2;
+    const x = (BASE_W - w) / 2;
     const y = 30;
-    hud.panel(x, y, w, 158, 'paper');
-    hud.text('GOBLIN COOPERATIVE', VIEW_W / 2, y + 10, { font: 'head', size: 6, color: UI.inkDim, align: 'center', edge: 'none' });
-    hud.text('BURROW CHARTER', VIEW_W / 2, y + 22, { font: 'head', size: 10, color: UI.ink, align: 'center', edge: 'none' });
-    ['At least one legal wall', 'A source of food', 'A working workshop', 'Reliable power', 'An order filled for the Cooperative'].forEach((l, i) => {
-      const ly = y + 46 + i * 15;
+    hud.panel(x, y, w, 164, 'paper');
+    hud.text('GOBLIN COOPERATIVE', BASE_W / 2, y + 10, { font: 'head', size: 6, color: UI.inkDim, align: 'center', edge: 'none' });
+    hud.text('BURROW CHARTER', BASE_W / 2, y + 22, { font: 'head', size: 10, color: UI.ink, align: 'center', edge: 'none' });
+    ['At least one legal wall', 'A source of food', 'A working workshop', 'A power component', 'Reliable power', 'An order filled for the Cooperative'].forEach((l, i) => {
+      const ly = y + 44 + i * 14;
       hud.fill(x + 18, ly, 8, 8, '#6a5440');
       hud.fill(x + 19, ly + 1, 6, 6, '#e8dcb8');
       hud.text(l, x + 32, ly, { size: 8, color: '#3a2a1a', edge: 'none' });
     });
-    hud.text('Registrar: ____________', x + 18, y + 128, { size: 8, color: UI.inkDim, edge: 'none' });
+    hud.text('Registrar: ____________', x + 18, y + 140, { size: 8, color: UI.inkDim, edge: 'none' });
     const hover = Math.sin(this.t * 2) * 2;
-    hud.fill(x + w - 46, y + 116 + hover, 22, 8, '#8a1a1a');
-    hud.fill(x + w - 39, y + 104 + hover, 8, 12, '#5e3e22');
-    hud.fill(x + w - 40, y + 100 + hover, 10, 5, '#7a5030');
+    hud.fill(x + w - 46, y + 146 + hover, 22, 8, '#8a1a1a');
+    hud.fill(x + w - 39, y + 134 + hover, 8, 12, '#5e3e22');
+    hud.fill(x + w - 40, y + 130 + hover, 10, 5, '#7a5030');
   }
 }
 
@@ -238,13 +249,16 @@ export class ChapterCard {
     ctx.fillStyle = '#050605';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     hud.begin();
+    const stage = stageOrigin();
+    hud.origin(stage.x, stage.y);
     const a = clamp(this.t / 0.8, 0, 1) * clamp((4.6 - this.t) / 0.8, 0, 1);
     hud.setAlpha(a);
-    hud.text(CHAPTER_CARD.kicker.toUpperCase(), VIEW_W / 2, 104, { font: 'head', size: 8, color: UI.gold, align: 'center' });
+    hud.text(CHAPTER_CARD.kicker.toUpperCase(), BASE_W / 2, 104, { font: 'head', size: 8, color: UI.gold, align: 'center' });
     const w = Math.min(200, this.t * 160);
-    hud.fill(VIEW_W / 2 - w / 2, 118, w, 1, '#8a7a50');
-    hud.text(CHAPTER_CARD.title, VIEW_W / 2, 126, { size: 16, color: UI.text, align: 'center' });
-    hud.text('Get the Burrow recognized before the Guild surveys it.', VIEW_W / 2, 152, { size: 7, color: UI.dim, align: 'center' });
+    hud.fill(BASE_W / 2 - w / 2, 118, w, 1, '#8a7a50');
+    hud.text(CHAPTER_CARD.title, BASE_W / 2, 126, { size: 16, color: UI.text, align: 'center' });
+    hud.text('Get the Burrow recognized before the Guild surveys it.', BASE_W / 2, 152, { size: 7, color: UI.dim, align: 'center' });
     hud.setAlpha(1);
+    hud.origin(0, 0);
   }
 }

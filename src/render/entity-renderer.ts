@@ -3,6 +3,7 @@ import { CHARGED_SHOT } from '../data/combat';
 import type { HumanId } from '../data/enemies';
 import { NODES, type NodeId } from '../data/nodes';
 import type { RegionId } from '../data/regions';
+import { BLAST_TIME, blastArea, VALVE_COOLDOWN, type BossFight } from '../game/boss';
 import type { Creature } from '../game/creature';
 import { FX } from '../game/effects';
 import { AIM_LOCK, FIRE_RADIUS, type Human } from '../game/human';
@@ -10,7 +11,7 @@ import { jobProgress } from '../game/production';
 import type { Player } from '../game/player';
 import type { Projectile } from '../game/projectiles';
 import type { SaveData } from '../game/save';
-import type { Pickup, Scene, WorldObject } from '../game/scene';
+import type { Pickup, Scene, StinkCloud, WorldObject } from '../game/scene';
 import { lineOfSight } from '../world/sight';
 import { TILE } from '../world/tiles';
 import { GOBLIN, GRUBB, HUMAN_PALETTES, humanSprite, MITE, RAT, SLIME, SLIMELET } from './art/characters';
@@ -43,6 +44,8 @@ export interface WorldDrawState {
   asleep: boolean;
   /** Activity Board has news you haven't read. */
   boardNews: boolean;
+  /** The region's boss fight, for drawing its valves. */
+  boss: BossFight | null;
 }
 
 type Drawable = { y: number; draw: () => void };
@@ -59,7 +62,8 @@ export function drawWorld(ctx: CanvasRenderingContext2D, view: View, scene: Scen
   for (const o of scene.objects) {
     if (o.kind === 'hole' || o.kind === 'post') continue;
     if (Math.abs(o.x - view.x - VIEW_W / 2) > VIEW_W / 2 + 48 || Math.abs(o.y - view.y - VIEW_H / 2) > VIEW_H / 2 + 64) continue;
-    list.push({ y: o.y, draw: () => drawObject(ctx, o, s, o === s.focus) });
+    // Vents are flat in the floor: everything stands on top of them.
+    list.push({ y: o.kind === 'vent' ? o.y - 32 : o.y, draw: () => drawObject(ctx, o, s, o === s.focus) });
   }
   for (const c of scene.creatures) list.push({ y: c.y, draw: () => drawCreature(ctx, c, s.time) });
   for (const h of scene.humans) list.push({ y: h.y, draw: () => drawHuman(ctx, h, s.time) });
@@ -67,6 +71,18 @@ export function drawWorld(ctx: CanvasRenderingContext2D, view: View, scene: Scen
   list.push({ y: player.y, draw: () => drawGoblin(ctx, player, s) });
   list.sort((a, b) => a.y - b.y);
   for (const d of list) d.draw();
+
+  // Heaps you can hide in show a little eye as you come near, so they don't pass for junk piles.
+  if (!s.goblinHidden) {
+    for (const o of scene.objects) {
+      if (o.kind !== 'heap') continue;
+      const d = Math.hypot(o.x - player.x, o.y - player.y);
+      if (d > 72) continue;
+      ctx.globalAlpha = Math.min(1, (72 - d) / 30) * (0.75 + 0.25 * Math.sin(s.time * 3));
+      drawEye(ctx, o.x, o.y - 21);
+      ctx.globalAlpha = 1;
+    }
+  }
 
   if (s.goblinHidden && !s.goblinDown) {
     // Peeking out of the heap.
@@ -92,8 +108,13 @@ export function drawWorld(ctx: CanvasRenderingContext2D, view: View, scene: Scen
 export function drawWorldOverlay(ctx: CanvasRenderingContext2D, view: View, scene: Scene, s: WorldDrawState): void {
   ctx.save();
   ctx.translate(-view.x, -view.y);
+  for (const cloud of scene.clouds) drawCloud(ctx, cloud);
+  // Over the lighting, so the dark Pump Room can't swallow them.
+  if (s.boss) drawValveMarks(ctx, scene, s.boss, s.time);
+  if (scene.boss) for (const b of scene.boss.blasts) drawSteam(ctx, b, s.time);
   for (const h of scene.humans) drawCone(ctx, scene, h);
   for (const c of scene.creatures) drawCreatureTelegraph(ctx, c);
+  for (const c of scene.creatures) if (c.state === 'stunned') drawDizzy(ctx, c, s.time);
   for (const h of scene.humans) drawHumanTelegraph(ctx, h, s.time);
   for (const n of scene.noises) {
     const k = n.t / 0.6;
@@ -149,7 +170,9 @@ function objectArt(o: WorldObject, s: WorldDrawState): { art: string; variant: s
     case 'access':
       return { art: 'access', variant: '' };
     case 'valve':
-      return { art: 'valve', variant: s.save.flags.sluiceOpen ? 'turned' : '' };
+      return { art: 'steamValve', variant: s.boss?.valveState(o) ?? '' };
+    case 'vent':
+      return { art: 'vent', variant: '' };
     case 'letter':
       return { art: 'letter', variant: '' };
     case 'station':
@@ -184,10 +207,6 @@ function objectArt(o: WorldObject, s: WorldDrawState): { art: string; variant: s
 }
 
 function drawObject(ctx: CanvasRenderingContext2D, o: WorldObject, s: WorldDrawState, focused: boolean): void {
-  if (o.kind === 'dormant') {
-    drawDormant(ctx, o, s.time);
-    return;
-  }
   if (o.kind === 'npc' && o.id === 'grubb') drawGrubb(ctx, o.x, o.y - 4, s.time);
   if (o.kind === 'npc' && o.id === 'hatch') drawDorrit(ctx, o.x, o.y, s.time);
   const a = objectArt(o, s);
@@ -199,12 +218,19 @@ function drawObject(ctx: CanvasRenderingContext2D, o: WorldObject, s: WorldDrawS
     const sil = propSilhouette(a.art, a.variant, '#fff4c8');
     for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) ctx.drawImage(sil.canvas, Math.round(x - sil.ax + dx), Math.round(y - sil.ay + dy));
   }
+  // Searched, smashed, or scooped: faded back, so what's left doesn't read as loot.
+  const spent = o.kind === 'node' && o.spent;
+  if (spent) ctx.globalAlpha = 0.55;
   drawProp(ctx, a.art, a.variant, x, y);
+  if (spent) ctx.globalAlpha = 1;
 
   // Extras that change with the Burrow.
   if (o.kind === 'station') {
     const up = (id: string) => s.save.upgrades.includes(id as never);
     if (o.id === 'bed' && up('tooGrandChair')) drawProp(ctx, 'grandChair', '', o.x + 34, o.y + 2);
+    if (o.id === 'bed' && up('wallClock')) drawProp(ctx, 'wallClock', '', o.x + 18, o.y - 17);
+    if (o.id === 'storage' && up('waxFern')) drawProp(ctx, 'waxFern', '', o.x - 15, o.y + 1);
+    if (o.id === 'sign' && up('gildedPlaque')) drawProp(ctx, 'estPlaque', '', o.x + 34, o.y - 6);
     if (o.id === 'pot') {
       drawProp(ctx, 'bowls', up('secondBowl') ? 'two' : '', o.x + 18, o.y + 2);
       drawFire(ctx, o.x, o.y - 1, s.time);
@@ -223,6 +249,20 @@ function drawObject(ctx: CanvasRenderingContext2D, o: WorldObject, s: WorldDrawS
   }
 }
 
+/** A small open eye: "you could hide in here". */
+function drawEye(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  const ex = Math.round(x) - 3;
+  const ey = Math.round(y);
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(ex + 1, ey - 1, 5, 5);
+  ctx.fillRect(ex, ey, 7, 3);
+  ctx.fillStyle = '#e8e4d8';
+  ctx.fillRect(ex + 2, ey, 3, 3);
+  ctx.fillRect(ex + 1, ey + 1, 5, 1);
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(ex + 3, ey + 1, 1, 1);
+}
+
 function drawFire(ctx: CanvasRenderingContext2D, x: number, y: number, time: number): void {
   const f = Math.floor(time * 12);
   const colors = ['#ff7030', '#ffb040', '#ffe080'];
@@ -239,31 +279,6 @@ function drawCandleFlame(ctx: CanvasRenderingContext2D, x: number, y: number, ti
   ctx.fillRect(Math.round(x), Math.round(y) - 1 - (f === 0 ? 1 : 0), 2, 2 + (f === 0 ? 1 : 0));
   ctx.fillStyle = '#fff4c0';
   ctx.fillRect(Math.round(x), Math.round(y), 1, 1);
-}
-
-function drawDormant(ctx: CanvasRenderingContext2D, o: WorldObject, time: number): void {
-  // Beetles and the Matron, asleep until their behaviors land (M6).
-  const big = o.id === 'pumpMatron';
-  const rx = big ? 18 : 8;
-  const ry = big ? 12 : 6;
-  const breathe = Math.sin(time * 1.5 + o.col) * 0.5;
-  drawShadow(ctx, o.x, o.y + 1, rx, 3);
-  ctx.fillStyle = '#1a1210';
-  pixelEllipse(ctx, o.x, o.y - ry, rx + 1, ry + 1 + breathe);
-  ctx.fillStyle = big ? '#8a3420' : '#7a4a28';
-  pixelEllipse(ctx, o.x, o.y - ry, rx, ry + breathe);
-  ctx.fillStyle = big ? '#c87533' : '#a0703a';
-  pixelEllipse(ctx, o.x - rx / 3, o.y - ry - ry / 3, rx / 2, ry / 3);
-  if (big) {
-    ctx.fillStyle = '#f0a060';
-    pixelEllipse(ctx, o.x + 4, o.y - ry - 2, 6, 6);
-    ctx.fillStyle = '#8a4a20';
-    pixelEllipse(ctx, o.x + 4, o.y - ry - 2, 2, 2);
-  }
-  if (Math.floor(time * 0.8 + o.col) % 3 === 0) {
-    ctx.fillStyle = 'rgba(232, 228, 216, 0.7)';
-    ctx.fillRect(Math.round(o.x + rx), Math.round(o.y - ry * 2 - 4 - ((time * 6) % 6)), 2, 1);
-  }
 }
 
 function drawSpots(ctx: CanvasRenderingContext2D, scene: Scene, s: WorldDrawState): void {
@@ -286,6 +301,46 @@ function drawSpots(ctx: CanvasRenderingContext2D, scene: Scene, s: WorldDrawStat
       if ((j / 2 + Math.floor(s.time * 6)) % 3 === 0) continue;
       ctx.fillRect(x, y + h - 1 - j, 1, 1);
       ctx.fillRect(x + w - 1, y + j, 1, 1);
+    }
+  }
+}
+
+/**
+ * Where each ready valve's steam will land, marked faintly on the floor so you know where to
+ * lure her, and a ring of pressure dots filling back up on valves that were just used.
+ */
+function drawValveMarks(ctx: CanvasRenderingContext2D, scene: Scene, fight: BossFight, time: number): void {
+  for (const o of scene.objects) {
+    const state = fight.valveState(o);
+    if (state === 'ready') {
+      const a = blastArea(o);
+      const pulse = 0.22 + 0.12 * Math.sin(time * 4);
+      ctx.fillStyle = `rgba(220, 236, 230, ${pulse})`;
+      const top = Math.round(a.y + 12);
+      for (let i = 0; i < a.w; i += 3) {
+        ctx.fillRect(Math.round(a.x + i), top, 1, 1);
+        ctx.fillRect(Math.round(a.x + i), Math.round(a.y + a.h - 1), 1, 1);
+      }
+      for (let j = top; j < a.y + a.h; j += 3) {
+        ctx.fillRect(Math.round(a.x), j, 1, 1);
+        ctx.fillRect(Math.round(a.x + a.w - 1), j, 1, 1);
+      }
+      // Chevrons drifting down the column: this way, the steam goes.
+      for (let k = 0; k < 3; k++) {
+        const cy = top + 8 + ((time * 22 + k * 26) % (a.h - 24));
+        for (let d = 0; d < 4; d++) {
+          ctx.fillRect(Math.round(o.x - d), Math.round(cy - d), 1, 1);
+          ctx.fillRect(Math.round(o.x + d), Math.round(cy - d), 1, 1);
+        }
+      }
+    } else if (state === 'spent') {
+      const filled = 1 - fight.cooldownLeft(o) / VALVE_COOLDOWN;
+      const dots = 12;
+      for (let i = 0; i < dots; i++) {
+        const ang = -Math.PI / 2 + (i / dots) * Math.PI * 2;
+        ctx.fillStyle = i / dots < filled ? '#f0d070' : 'rgba(40, 30, 20, 0.7)';
+        ctx.fillRect(Math.round(o.x + Math.cos(ang) * 10), Math.round(o.y - 9 + Math.sin(ang) * 10), 1, 1);
+      }
     }
   }
 }
@@ -402,6 +457,10 @@ function drawCreature(ctx: CanvasRenderingContext2D, c: Creature, time: number):
       break;
     case 'mite':
       sprite(MITE).draw(ctx, Math.floor(c.age * 12) % 2, x, y + 2, { flip, silhouette });
+      break;
+    case 'beetle':
+    case 'matron':
+      drawShellBeast(ctx, c, x, y, time, silhouette);
       break;
     default:
       ctx.fillStyle = silhouette ?? c.def.color;
@@ -543,15 +602,203 @@ function drawProjectile(ctx: CanvasRenderingContext2D, p: Projectile): void {
 
 // ---------------------------------------------------------------- readability
 
-/** Mites show where they're about to charge: a dotted line that firms up as the charge nears. */
+/** Chargers show where they're about to go: a dotted line that firms up as the charge nears. */
 function drawCreatureTelegraph(ctx: CanvasRenderingContext2D, c: Creature): void {
   const lunge = c.def.lunge;
-  if (c.state !== 'windup' || c.def.behavior !== 'mite' || !lunge) return;
+  const b = c.def.behavior;
+  if (c.state !== 'windup' || (b !== 'mite' && b !== 'beetle' && b !== 'matron') || !lunge) return;
   const length = lunge.speed * lunge.time;
   const k = Math.min(1, c.stateT / c.def.windup);
-  ctx.fillStyle = `rgba(255, 232, 160, ${0.2 + 0.45 * k})`;
-  for (let d = 8; d < length; d += 6) {
-    ctx.fillRect(Math.round(c.x + Math.cos(c.aim) * d) - 1, Math.round(c.y + Math.sin(c.aim) * d) - 1, 2, 2);
+  const size = b === 'matron' ? 3 : 2;
+  ctx.fillStyle = b === 'matron' ? `rgba(255, 150, 110, ${0.25 + 0.5 * k})` : `rgba(255, 232, 160, ${0.2 + 0.45 * k})`;
+  for (let d = c.radius + 2; d < length; d += 6) {
+    ctx.fillRect(Math.round(c.x + Math.cos(c.aim) * d) - 1, Math.round(c.y + Math.sin(c.aim) * d) - 1, size, size);
+  }
+}
+
+// ---------------------------------------------------------------- shelled creatures
+
+interface ShellPalette {
+  leg: string;
+  outline: string;
+  shell: string;
+  shellLight: string;
+  shellDark: string;
+  armor: string;
+  armorLight: string;
+  soft: string;
+  head: string;
+  eye: string;
+  belly: string;
+}
+
+const BEETLE_PAL: ShellPalette = {
+  leg: '#2a1a10', outline: '#140c08', shell: '#7a4a28', shellLight: '#a8703c', shellDark: '#4e2e18',
+  armor: '#9aa0a6', armorLight: '#e0e4e8', soft: '#d89a80', head: '#3a2418', eye: '#f0d040', belly: '#c8a878',
+};
+
+const MATRON_PAL: ShellPalette = {
+  leg: '#2a120c', outline: '#140806', shell: '#8a3420', shellLight: '#c0502c', shellDark: '#5a2014',
+  armor: '#a8aeb4', armorLight: '#ffffff', soft: '#e8a890', head: '#3a1410', eye: '#ff5030', belly: '#d8b890',
+};
+
+/**
+ * Beetles and the Matron, drawn top-down and turned to face where they're going. The armored
+ * front is bright metal; the soft rear is pale. That's the whole fight, so it has to read.
+ */
+function drawShellBeast(ctx: CanvasRenderingContext2D, c: Creature, x: number, y: number, time: number, silhouette?: string): void {
+  const big = c.def.behavior === 'matron';
+  const pal = big ? MATRON_PAL : BEETLE_PAL;
+  const r = c.radius;
+  const ry = r * 0.8;
+  const cy = y - 2;
+  const fx = Math.cos(c.face);
+  const fy = Math.sin(c.face);
+  const moving = Math.hypot(c.vx, c.vy) > 6;
+  const flipped = c.state === 'stunned';
+  const legSpeed = flipped ? 26 : big ? 9 : 15;
+  const step = moving || flipped ? Math.sin(c.age * legSpeed) : 0;
+  const thick = big ? 2 : 1;
+  drawShadow(ctx, x, y + ry - 3, r + 1, big ? 4 : 2);
+
+  // Legs: three pairs, splayed out to the sides.
+  ctx.fillStyle = silhouette ?? pal.leg;
+  for (let i = -1; i <= 1; i++) {
+    for (const side of [-1, 1]) {
+      const along = i * r * 0.5;
+      const wiggle = step * (i === 0 ? 1 : -1) * side * (big ? 3 : 2);
+      const bx = x + fx * along - fy * side * r * 0.6;
+      const by = cy + (fy * along + fx * side * r * 0.6) * 0.8;
+      const reach = flipped ? r * 0.7 : r + 3;
+      const ex = x + fx * (along + wiggle) - fy * side * reach;
+      const ey = cy + (fy * (along + wiggle) + fx * side * reach) * 0.8 - (flipped ? 4 : 0);
+      pixelLine(ctx, bx, by, ex, ey, thick);
+    }
+  }
+
+  ctx.fillStyle = silhouette ?? pal.outline;
+  pixelEllipse(ctx, x, cy, r + 1, ry + 1);
+  if (flipped) {
+    // On its back: a pale, segmented belly with nothing to protect it.
+    ctx.fillStyle = silhouette ?? pal.belly;
+    pixelEllipse(ctx, x, cy, r, ry);
+    if (!silhouette) {
+      ctx.fillStyle = pal.shellDark;
+      for (let k = -2; k <= 2; k++) {
+        const ox = fx * k * r * 0.3;
+        const oy = fy * k * r * 0.24;
+        pixelLine(ctx, x + ox - fy * r * 0.6, cy + oy + fx * ry * 0.6, x + ox + fy * r * 0.6, cy + oy - fx * ry * 0.6);
+      }
+    }
+    return;
+  }
+
+  ctx.fillStyle = silhouette ?? pal.shell;
+  pixelEllipse(ctx, x, cy, r, ry);
+  if (silhouette) return;
+  // Soft rear, then the armored front over the other half. A sealed shell is plated at the back too.
+  ctx.fillStyle = c.sealed ? pal.armor : pal.soft;
+  pixelEllipse(ctx, x - fx * r * 0.62, cy - fy * ry * 0.62, r * 0.38, ry * 0.36);
+  if (c.sealed) {
+    ctx.fillStyle = pal.armorLight;
+    for (const a of [-0.5, 0, 0.5]) ctx.fillRect(Math.round(x + Math.cos(c.face + Math.PI + a) * r * 0.62), Math.round(cy + Math.sin(c.face + Math.PI + a) * ry * 0.62), 1, 1);
+  }
+  ctx.fillStyle = pal.shellLight;
+  pixelEllipse(ctx, x - r * 0.28, cy - ry * 0.32, r * 0.45, ry * 0.3);
+  for (let a = -1.05; a <= 1.05; a += 0.07) {
+    const ang = c.face + a;
+    const ex = x + Math.cos(ang) * r * 0.9;
+    const ey = cy + Math.sin(ang) * ry * 0.9;
+    ctx.fillStyle = pal.armor;
+    ctx.fillRect(Math.round(ex) - 1, Math.round(ey) - 1, big ? 3 : 2, big ? 3 : 2);
+  }
+  for (let a = -0.9; a <= 0.9; a += 0.15) {
+    const ang = c.face + a;
+    ctx.fillStyle = pal.armorLight;
+    ctx.fillRect(Math.round(x + Math.cos(ang) * r * 0.95), Math.round(cy + Math.sin(ang) * ry * 0.95) - 1, 1, 1);
+  }
+  // Rivets on the plates.
+  ctx.fillStyle = pal.armorLight;
+  for (const a of [-0.6, 0, 0.6]) ctx.fillRect(Math.round(x + Math.cos(c.face + a) * r * 0.66), Math.round(cy + Math.sin(c.face + a) * ry * 0.66), 1, 1);
+  // The seam down the shell.
+  ctx.fillStyle = pal.shellDark;
+  pixelLine(ctx, x - fx * r * 0.85, cy - fy * ry * 0.85, x + fx * r * 0.45, cy + fy * ry * 0.45);
+
+  if (big) {
+    // The copper flywheel she grew into her shell, still turning.
+    const wx = x - fx * r * 0.15;
+    const wy = cy - fy * ry * 0.15 - 3;
+    const spin = time * (c.state === 'attack' ? 14 : moving ? 6 : 1.5);
+    ctx.fillStyle = '#5a2a10';
+    pixelEllipse(ctx, wx, wy + 1, r * 0.55, r * 0.42);
+    ctx.fillStyle = '#c87533';
+    for (let a = 0; a < Math.PI * 2; a += 0.22) ctx.fillRect(Math.round(wx + Math.cos(a) * r * 0.5), Math.round(wy + Math.sin(a) * r * 0.38), 2, 2);
+    ctx.fillStyle = '#f0a060';
+    for (let k = 0; k < 4; k++) {
+      const a = spin + (k * Math.PI) / 2;
+      pixelLine(ctx, wx, wy, wx + Math.cos(a) * r * 0.45, wy + Math.sin(a) * r * 0.34);
+    }
+    ctx.fillStyle = '#ffd8a0';
+    ctx.fillRect(Math.round(wx) - 1, Math.round(wy) - 1, 2, 2);
+  }
+
+  // Head and mandibles at the front.
+  const hx = x + fx * r * 0.92;
+  const hy = cy + fy * ry * 0.92;
+  const hr = r * 0.34;
+  ctx.fillStyle = pal.outline;
+  pixelEllipse(ctx, hx, hy, hr + 1, hr * 0.85 + 1);
+  ctx.fillStyle = pal.head;
+  pixelEllipse(ctx, hx, hy, hr, hr * 0.85);
+  ctx.fillStyle = pal.eye;
+  for (const side of [-1, 1]) ctx.fillRect(Math.round(hx - fy * side * hr * 0.55), Math.round(hy + fx * side * hr * 0.45) - 1, big ? 2 : 1, big ? 2 : 1);
+  ctx.fillStyle = pal.leg;
+  const open = c.state === 'windup' ? 0.55 : 0.3;
+  for (const side of [-1, 1]) {
+    const a = c.face + side * open;
+    pixelLine(ctx, hx + Math.cos(a) * hr * 0.6, hy + Math.sin(a) * hr * 0.5, hx + Math.cos(a) * (hr + (big ? 6 : 3)), hy + Math.sin(a) * (hr + (big ? 6 : 3)) * 0.8, thick);
+  }
+}
+
+/** Stars over something knocked flat. */
+function drawDizzy(ctx: CanvasRenderingContext2D, c: Creature, time: number): void {
+  for (let i = 0; i < 4; i++) {
+    const a = time * 5 + (i * Math.PI) / 2;
+    const sx = Math.round(c.x + Math.cos(a) * (c.radius * 0.8));
+    const sy = Math.round(c.y - c.radius - 6 + Math.sin(a) * 3);
+    ctx.fillStyle = i % 2 ? '#fff4c0' : '#f0c040';
+    ctx.fillRect(sx, sy - 1, 1, 3);
+    ctx.fillRect(sx - 1, sy, 3, 1);
+  }
+}
+
+function drawSteam(ctx: CanvasRenderingContext2D, b: { x: number; y: number; w: number; h: number; t: number }, time: number): void {
+  const fade = b.t < BLAST_TIME ? 1 : Math.max(0, 1 - (b.t - BLAST_TIME) / 0.6);
+  const reach = Math.min(1, b.t / 0.15) * b.h;
+  // A pale column first, so the danger area reads at a glance, then the billowing puffs.
+  ctx.fillStyle = `rgba(230, 236, 232, ${0.16 * fade})`;
+  ctx.fillRect(Math.round(b.x), Math.round(b.y), Math.round(b.w), Math.round(reach));
+  for (let i = 0; i < 160; i++) {
+    const fx = ((i * 0.618034) % 1) * b.w;
+    const fy = (i * 23 + time * 300) % b.h;
+    if (fy > reach) continue;
+    const wob = Math.sin(time * 9 + i) * 4 * (fy / b.h + 0.3);
+    const a = fade * (0.9 - (fy / b.h) * 0.5);
+    ctx.fillStyle = i % 4 === 0 ? `rgba(255, 255, 255, ${a})` : `rgba(214, 222, 218, ${a * 0.8})`;
+    const size = 2 + (i % 4);
+    ctx.fillRect(Math.round(b.x + fx + wob - size / 2), Math.round(b.y + fy), size, size);
+  }
+}
+
+function drawCloud(ctx: CanvasRenderingContext2D, cloud: StinkCloud): void {
+  const fade = Math.min(1, cloud.t / 0.4) * Math.min(1, (cloud.life - cloud.t) / 1.5);
+  for (let i = 0; i < 90; i++) {
+    const d = cloud.r * Math.sqrt((i * 0.618034) % 1);
+    const a = i * 2.39996 + cloud.t * (i % 2 ? 0.35 : -0.25);
+    const x = Math.round(cloud.x + Math.cos(a) * d);
+    const y = Math.round(cloud.y + Math.sin(a) * d * 0.75);
+    ctx.fillStyle = i % 3 === 0 ? `rgba(200, 220, 90, ${0.55 * fade})` : `rgba(130, 160, 60, ${0.4 * fade})`;
+    ctx.fillRect(x, y, 2, 2);
   }
 }
 

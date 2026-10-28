@@ -169,6 +169,35 @@ const PROPS: Record<string, PropDef> = {
       p.hline(7, 4, 3, '#a8f8a0');
     },
   },
+  reinforcedPile: {
+    w: 26, h: 20, ax: 13, ay: 17,
+    draw(p, v) {
+      if (v === 'searched') {
+        p.ball(13, 15, 11, 3.5, '#3e3832', '#4e463e', '#2e2a26');
+        p.line(4, 14, 10, 12, IRON.lo);
+        p.line(16, 12, 22, 15, IRON.lo);
+        p.px(13, 13, RUST);
+        p.outline();
+        return;
+      }
+      // A junk heap strapped down with iron bands and a padlock that has seen better days.
+      p.ball(13, 13, 12, 6.5, '#4a443c', '#625a4c', '#342f29');
+      p.rect(6, 6, 6, 5, IRON.base);
+      p.hline(6, 6, 6, IRON.hi);
+      p.rect(15, 5, 7, 6, '#5a5e64');
+      p.hline(15, 5, 7, IRON.hi);
+      p.line(3, 12, 23, 8, IRON.lo);
+      p.line(3, 13, 23, 9, IRON.hi);
+      p.line(5, 17, 22, 13, IRON.lo);
+      p.line(5, 16, 22, 12, IRON.base);
+      p.rect(11, 9, 4, 4, '#c8a040');
+      p.px(12, 10, '#2a2010');
+      p.ring(13, 8.5, 1.6, 1.8, IRON.hi);
+      p.speckle(3, 9, 20, 8, RUST, 9);
+      p.speckle(4, 11, 18, 5, '#2a2622', 6);
+      p.outline();
+    },
+  },
   copperMachine: {
     w: 24, h: 24, ax: 12, ay: 21,
     draw(p, v) {
@@ -248,6 +277,54 @@ const PROPS: Record<string, PropDef> = {
         p.line(8, 7, 8 + Math.cos(a) * 5, 7 + Math.sin(a) * 5, '#a03020');
       }
       p.ellipse(8, 7, 1.5, 1.5, '#e8c070');
+      p.outline();
+    },
+  },
+  steamValve: {
+    w: 18, h: 26, ax: 9, ay: 23,
+    draw(p, v) {
+      // A fat pipe out of the wall, a pressure gauge, and a big red wheel.
+      p.rect(6, 0, 6, 22, IRON.base);
+      p.vline(6, 0, 22, IRON.hi);
+      p.vline(11, 0, 22, IRON.lo);
+      p.rect(4, 18, 10, 4, IRON.lo);
+      p.hline(4, 18, 10, IRON.base);
+      p.ellipse(9, 4, 3.5, 3.5, '#e8e0c8');
+      p.ring(9, 4, 3.6, 3.6, '#2a2420');
+      const needle = v === 'ready' ? -0.3 : v === 'spent' ? 2.4 : 1.2;
+      p.line(9, 4, 9 + Math.cos(needle - Math.PI / 2) * 2.5, 4 + Math.sin(needle - Math.PI / 2) * 2.5, '#c03030');
+      const wheel = v === 'ready' ? '#e05a30' : '#a03020';
+      p.ring(9, 12, 6, 6, '#7a2418');
+      p.ring(9, 12, 5, 5, wheel);
+      const turn = v === 'spent' ? Math.PI / 4 : 0;
+      for (let i = 0; i < 4; i++) {
+        const a = turn + (i * Math.PI) / 2;
+        p.line(9, 12, 9 + Math.cos(a) * 5, 12 + Math.sin(a) * 5, '#7a2418');
+      }
+      p.ellipse(9, 12, 1.5, 1.5, '#e8c070');
+      p.outline();
+    },
+  },
+  vent: {
+    w: 20, h: 12, ax: 10, ay: 10,
+    draw(p) {
+      p.rect(1, 2, 18, 8, '#2a2622');
+      p.rect(1, 1, 18, 1, IRON.lo);
+      for (let x = 3; x < 18; x += 3) p.vline(x, 2, 8, '#4a4e54');
+      p.rect(2, 3, 16, 1, '#0c0a08');
+      p.hline(1, 10, 18, '#1a1612');
+      p.outline();
+    },
+  },
+  flywheelHub: {
+    w: 20, h: 14, ax: 10, ay: 11,
+    draw(p) {
+      // Where the Matron used to sit: a bent axle and a ring of scratches.
+      p.ellipse(10, 9, 9, 4, '#2e2a26');
+      p.ring(10, 9, 9, 4, '#4a443c');
+      p.rect(9, 2, 2, 8, IRON.base);
+      p.vline(9, 2, 8, IRON.hi);
+      p.ellipse(10, 2, 2, 1.5, '#c87533');
       p.outline();
     },
   },
@@ -591,6 +668,45 @@ const PROPS: Record<string, PropDef> = {
     },
   },
 
+  wallClock: {
+    w: 14, h: 16, ax: 7, ay: 15,
+    draw(p) {
+      p.rect(3, 9, 8, 6, WOOD.base);
+      p.vline(3, 9, 6, WOOD.hi);
+      p.ball(7, 6, 6, 6, '#c8a040', '#f0d070', '#8a6a20');
+      p.ellipse(7, 6, 4.5, 4.5, '#ece4c8');
+      p.line(7, 6, 7, 3, INK);
+      p.line(7, 6, 9, 7, INK);
+      for (const [x, y] of [[7, 2], [11, 6], [7, 10], [3, 6]] as const) p.px(x, y, '#6a5440');
+      p.vline(7, 11, 3, '#c8a040');
+      p.ellipse(7, 13.5, 1.5, 1.5, '#f0d070');
+      p.outline();
+    },
+  },
+  waxFern: {
+    w: 16, h: 20, ax: 8, ay: 18,
+    draw(p) {
+      p.poly([[4, 13], [12, 13], [11, 18], [5, 18]], '#9a5a30');
+      p.hline(4, 13, 9, '#c07a48');
+      for (const [x0, y0, x1, y1] of [[8, 13, 2, 4], [8, 13, 14, 3], [8, 13, 8, 1], [8, 13, 3, 9], [8, 13, 13, 9]] as const) {
+        p.line(x0, y0, x1, y1, '#4a8a3a');
+        p.px(x1, y1, '#7ac05a');
+        p.px((x0 + x1) / 2, (y0 + y1) / 2, '#6aaa4a');
+      }
+      p.outline();
+    },
+  },
+  estPlaque: {
+    w: 26, h: 10, ax: 13, ay: 9,
+    draw(p) {
+      p.rect(1, 1, 24, 7, '#c8a040');
+      p.hline(1, 1, 24, '#f0d070');
+      p.hline(1, 7, 24, '#8a6a20');
+      p.text('EST. NOW', 13 - Math.floor(Painter.textWidth('EST. NOW') / 2), 2, INK);
+      p.outline();
+    },
+  },
+
   // ------------------------------------------------------------- Cooperative
   desk: {
     w: 38, h: 22, ax: 19, ay: 18,
@@ -623,8 +739,8 @@ const PROPS: Record<string, PropDef> = {
       p.vline(29, 5, 14, WOOD.lo);
       p.rect(1, 19, 28, 3, '#9a6a3a');
       p.hline(1, 19, 28, '#ba8a52');
-      p.rect(8, 0, 14, 5, '#d8c8a0');
-      p.text('HATCH', 15 - Math.floor(Painter.textWidth('HATCH') / 2), 0, INK);
+      p.rect(4, 0, 22, 7, '#d8c8a0');
+      p.text('HATCH', 15 - Math.floor(Painter.textWidth('HATCH') / 2), 1, INK);
       p.outline();
     },
   },
@@ -639,10 +755,12 @@ const PROPS: Record<string, PropDef> = {
       p.rect(4, 4, 9, 7, PAPER);
       p.px(8, 4, '#c03030');
       for (let y = 6; y < 10; y += 2) p.hline(5, y, 7, '#8a8070');
+      // The Guild's survey notice: too small to read from here, but that red seal is unmistakable.
       p.rect(15, 3, 12, 9, '#f0e8c0');
       p.px(21, 3, '#3060c0');
-      p.text('GUILD', 16, 5, INK);
-      p.hline(16, 11, 10, '#8a8070');
+      for (let y = 5; y < 10; y += 2) p.hline(16, y, 7, '#8a8070');
+      p.rect(23, 8, 3, 3, '#c03030');
+      p.px(24, 8, '#e05050');
       p.rect(6, 12, 10, 5, '#d8c8a0');
       p.px(11, 12, '#c03030');
       p.hline(7, 14, 8, '#8a8070');

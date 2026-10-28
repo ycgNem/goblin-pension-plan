@@ -70,6 +70,26 @@ export interface SaveData {
   eventNodes: EventNode[];
   grubbVisits: number;
   stats: { defeated: number; searched: number; crafted: number; built: number; defeats: number };
+  /** Slime Generator charge, 0 up to its capacity. */
+  charge: number;
+  /** What the Hatch has bought from you this shift. Demand resets at the Shift Bell. */
+  trade: { shift: number; sold: ItemBag };
+  /** Buttons paid toward occupancy rights. */
+  occupancy: number;
+  /** The throwable F uses when you have one: Stinkbrew if you picked it, otherwise a bottle, otherwise a pebble. */
+  readyThrow: ItemId | null;
+  /** Things left on the floor of the regions you're not in. They wait there until the next Shift Bell. */
+  floor: FloorItem[];
+}
+
+export interface FloorItem {
+  region: RegionId;
+  /** The shift it was left in. */
+  shift: number;
+  item: ItemId;
+  qty: number;
+  x: number;
+  y: number;
 }
 
 export function newSave(): SaveData {
@@ -96,6 +116,11 @@ export function newSave(): SaveData {
     eventNodes: [],
     grubbVisits: 0,
     stats: { defeated: 0, searched: 0, crafted: 0, built: 0, defeats: 0 },
+    charge: 0,
+    trade: { shift: 0, sold: {} },
+    occupancy: 0,
+    readyThrow: null,
+    floor: [],
   };
 }
 

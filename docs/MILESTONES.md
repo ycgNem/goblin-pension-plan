@@ -39,7 +39,7 @@ Legend: `[x]` done · `[ ]` to do · **(T)** has an automated test.
 - [x] **(T)** Damage and invulnerability-frame math; slime split counts
 
 **Also landed in M1**
-- **Bone Mite** (shakes, draws its charge line, charges straight). Beetles and the Pump Matron spawn as dormant markers until M6.
+- **Bone Mite** (shakes, draws its charge line, charges straight). Beetles and the Pump Matron spawned as dormant markers until M6.
 - **Fairness rules:** at most 2 creatures wind up or attack at once (the rest circle); no contact damage, only telegraphed attacks; light creatures can be shot out of a windup, heavy ones can't.
 - **Line of sight** (grid raycast, `src/world/sight.ts`) and **pathing** (breadth-first flow fields, `src/world/pathing.ts`). Chasers route around walls to where they last saw you, give up after 3s, and go home.
 - **Shift memory** (`save.spent`): defeated creatures stay gone until the next Shift Bell. M2's searched piles use the same mechanism.
@@ -106,7 +106,7 @@ Legend: `[x]` done · `[ ]` to do · **(T)** has an automated test.
 - [x] Activity warnings: footsteps strip, a bark from the grate before they appear, speech bubbles, the Activity Board
 - [x] Sprite pass: goblin, Grubb, rat, slime, slimelet, mite, and five human palettes as hand-placed string sprites (`src/render/art/characters.ts`), plus props, icons, and portraits drawn in code. No sprite sheets needed.
 - [x] **(T)** Hidden goblins are never noticed; plain view turns people hostile; nobody sees behind them; sneaking halves suspicion; a pursuit ends within 15 seconds once you're in cover; pebbles and bottles; people never follow into a crawlspace; the inspector flees and whistles instead of fighting; parties never appear within 6 tiles of the goblin (`tests/stealth.test.ts`, `tests/events.test.ts`)
-- [ ] **(T)** Every patrol zone has at least 2 exits including a crawl exit, checked on the map data. *(Not written yet.)*
+- [x] **(T)** Every patrol zone has at least 2 exits including a crawl exit, checked on the map data, gates shut (`tests/events.test.ts`). The Cistern needed one: the passage down to the Pumpworks now starts with a crawl pipe people can't follow.
 
 **Done when:** a new player can reliably escape a hostile party at least three different ways (crawl, hiding spot, out of sight). *(The AI rules are tested; the three escapes still want a hands-on play.)*
 
@@ -147,29 +147,31 @@ Legend: `[x]` done · `[ ]` to do · **(T)** has an automated test.
 
 ## Pulled forward from M6 and M7
 
-- [x] M6: the Goblin Cooperative with Grubb, the Hatch (Dorrit; trading itself is still to come), and the Activity Board; the Retirement Ledger screen
+- [x] M6: the Goblin Cooperative with Grubb, the Hatch (Dorrit), and the Activity Board; the Retirement Ledger screen
 - [x] M6: production stations with timers (see M3)
 - [x] M7: lighting, procedural sound and ambience, the Shift Bell, the map screen, the home arrow, the pause menu with a confirmed save reset, the title screen, a screen-shake toggle, and shape-plus-color awareness icons
 
 ---
 
-## M6 — Production, Pumpworks, boss, chapter end
+## M6 — Production, Pumpworks, boss, chapter end ✅
 *Earn Stamp #1.*
 
 - [x] Production stations with timers that run while you play: Mushroom Bed, Drying Rack, Bone Grinder *(landed with M3)*
-- [ ] Slime Generator: charge storage (20), fuelled by gel, connected by pipes in the visuals
-- [ ] Charge-costing recipes: Slime Cell
-- [ ] Bone Mite and Scrapback Beetle (armored front, sparks on blocked shots)
-- [ ] Old Pumpworks layout with copper machinery and the Pump Room
-- [ ] **Pump Matron** boss: 2 phases, steam valves, add spawns, drops the Flywheel Coil, opens the shortcut afterward
-- [ ] Goblin Cooperative: Grubb (production order + stamp), the Hatch (Dorrit), the Activity Board *(the room, Grubb, Dorrit, and the Board are in; the order, the stamp, and trading are not)*
-- [ ] Trading: buys processed goods only, demand per shift with price falling about 15% per unit sold, sells spores, patterns, and decorations
-- [ ] Charter steps 4–6, stamp ceremony, Retirement Ledger screen, free play afterward *(the Ledger screen is in)*
-- [ ] Skill milestones from DESIGN §10 all hooked up (Scrapping's are done)
-- [ ] Beetle and Pump Matron behaviors (add them to `ACTIVE_BEHAVIORS` in `src/game/creature.ts`)
-- [ ] **(T)** Economy: no buy→craft→sell or buy→salvage loop makes a profit (brute-force over recipes); the full chapter can be completed from a fresh save using only resources that refill each shift (a simulated "resource budget" test); a dry generator never blocks basic recipes
+- [x] Slime Generator: holds 20 charge, 5 per Slime Gel (the last gel tops it off), fed through its own window; copper pipes run to the workbench and the grinder spot once it's built
+- [x] Charge-costing recipes: Slime Cell (2), Slime Shot (3), Bone Fertilizer (1). The requirement shows a bolt and `have/need`.
+- [x] Bone Mite and Scrapback Beetle: the beetle turns slowly, walks the way it faces, and only charges once it has come round; shots off its front spark and clank
+- [x] Old Pumpworks: an upper hall with beetles, mites, copper machinery, and a reinforced scrap pile, and the Pump Room below behind a two-tile doorway (the goblin fits, the Matron doesn't)
+- [x] **Pump Matron** (`src/game/boss.ts`): asleep until you walk in; phase 1 is "get behind her"; at 60% she seals her shell, turns faster, and calls up to two Bone Mites from the vent farthest from you; the two steam valves get pressure (7s cooldown), and a blast flips her for 3s with her belly taking double damage. Steam scalds mites too. When she falls her mites slink off (no loot), she drops the Flywheel Coil and 3 copper, and the drain gate opens. If the coil gets left behind, it waits in the lair.
+- [x] Goblin Cooperative: Grubb takes Supply Order #1 (4 Dried Rations, 2 Slime Cells, fetched from your crate by a Union rat) and stamps the Charter; the Hatch opens once you've met Grubb
+- [x] Trading (`src/game/trade.ts`, `src/ui/trade.ts`): Dorrit buys processed goods at falling prices (15% a sale) with demand reset by the Shift Bell, raw materials for 1 button; she sells Truffle Spores, bottles, cloth, the Bottle Bandolier (bottles stack to five), and three decorations (Wall Clock, Wax Fern, "EST." Plaque)
+- [x] Charter steps 4–6, the stamp ceremony (`StampOverlay`), "CHAPTER ONE COMPLETE", and free play afterward: occupancy rights are paid off at Grubb 25 buttons at a time toward 600, and the Ledger tracks it
+- [x] Skill milestones from DESIGN §10 all hooked up, and a data test checks every one gates something real
+- [x] Beetle and Pump Matron behaviors (`chaseTurning`, armored fronts, stun and flip, sealed shells)
+- [x] **(T)** Economy and softlocks: no buy→craft→sell loop makes a profit (`tests/data.test.ts`); a worst-case resource-budget simulation reaches Stamp #1 from a fresh save in 3 shifts using only what refills each shift (`tests/budget.test.ts`); a dry generator never blocks basic recipes, and trading, occupancy, the bandolier, and the generator are covered in `tests/trade.test.ts`; the beetle and the Matron in `tests/pumpworks.test.ts`
 
-**Done when:** a fresh save can reach Stamp #1, and the automated softlock test agrees.
+**Play-test (bot runs against the Pump Matron on the real Pump Room map, 6 runs per style):** before tuning, a bot that just circled behind her won in about 23s losing 0–2 half-hearts, even without ever rolling: she turned at the same speed the goblin circles, so she never faced it, and the valves were pointless. A faster phase-2 turn alone didn't fix it (hugging her back still worked). Now her shell seals in phase 2, so the valves are the way through: valve users win every run in 29–47s losing 0–6 half-hearts (about 2 on average), and bots that ignore the valves can't win. Tuning: 80 health (was 60), hits for 2 half-hearts (was 3), turns 40% faster in phase 2. Standing in the doorway is safe, but nothing gets hurt from there.
+
+**Done when:** a fresh save can reach Stamp #1, and the automated softlock test agrees. *(Both true: the budget test, plus a run through generator → cells → order → stamp → trading in the browser.)*
 
 ---
 
@@ -183,10 +185,50 @@ Legend: `[x]` done · `[ ]` to do · **(T)** has an automated test.
 - [x] Exit arrow on the screen edge pointing toward home
 - [x] Pause menu: resume, controls, **reset save (confirmed)**, volume
 - [x] Title screen and "Continue / New Burrow"
-- [ ] Balancing pass against the §17 pacing timeline
-- [ ] Accessibility: rebindable keys, a screen shake toggle, colorblind-safe awareness icons (shape + color) *(shake toggle and icons are in; rebinding is not)*
+- [x] Balancing pass against the §17 pacing timeline: the Matron bot runs above; the budget simulation shows materials never hold the chapter back (3 shifts on the worst case); the critic play-through below covers how it feels
+- [x] Accessibility: rebindable keys (Settings → Controls; Esc cancels, conflicts swap, reset to defaults), a screen shake toggle, colorblind-safe awareness icons (shape + color)
+- [x] Fills the screen: the view widens or deepens to the window's shape (480–640 by 270–360 game pixels), scaled with sharp pixels and no black bars; fullscreen on the first key press (Settings → Fullscreen, or Alt+Enter)
 
 **Done when:** a fresh player can go from title screen to Stamp #1 in 60–90 minutes without reading the docs.
+
+---
+
+## Critic play-through (after M6/M7)
+
+A fresh critic played from the title screen to free play and filed 22 findings. What changed:
+
+- **The HUD hid the play area.** The camera can now look 36px past the top of a map, so top rows sit below the HUD. The objective and tracker fade out when the goblin, what it would use, a creature, a person, or speech is behind them. World prompts, speech, and damage numbers draw on top of the panels.
+- **Pacing.** The Scrap Workbench needs 3 Slime Gel, so step 3 takes a first trip into the Cistern. The Pump Room is now entered the long way round, across the beetle hall and down the east corridor, so you meet armored fronts before the boss. The old doorway is the drain gate shortcut, opening when she's beaten. The step-4 objective and Grubb now give the route. *(Still likely under 60–90 minutes for a quick player; more content is the real fix.)*
+- **A full pack lost things.** Floor items are now kept per region until the Shift Bell, across trips and reloads (`save.floor`). The pack has a Drop key (X), which puts the stack in the crate at home. Dropped things stay put until you walk away. The pack-full toast names the item and says what to do.
+- **The stealth lesson was easy to miss.** The story contract is every shift's event until it has played. It starts 15 seconds into the Galleries, or as soon as you go near the nest.
+- **Boss clarity.** She rears up for 2.4s on waking, so the title card can be read. A ready valve marks where its steam will land. A used valve shows a ring of pressure filling back up, and its prompt counts down. The hint says the steam goes straight down.
+- **Hints.** Movement shows at wake-up. Fight, sneak, eat, throw, armor, and valve hints jump the queue, and hints for things you've already done are dropped.
+- **Mods.** The first mod you craft is equipped, and the HUD shows the equipped mod. The pack's cursor skips empty pockets.
+- **Readability.**
+  - Bare numbers lose the drop shadow that filled in 5s and 8s.
+  - Hiding heaps show an eye as you come near.
+  - Searched piles are faded.
+  - The HATCH sign fits its plate, and the Board's notice no longer has a clipped word.
+  - The map draws passages solid, crawl pipes dotted, shut ways dashed, and the way home in gold. Two links between the same regions sit side by side, and there's a drawn legend.
+  - 5:4 windows fill too (the view can be up to 384px tall).
+- **Smaller fixes.**
+  - Dialogue choices you've asked are dimmed and skipped.
+  - The trip summary lists every region visited and leads with any Charter steps finished.
+  - Dorrit sells Copper Parts (6 buttons), so buttons matter before the stamp.
+  - Decorations have icons.
+  - A decoration's real lock reason shows before "Not enough buttons".
+  - The empty-nest bark now plays when the heroes didn't clear the nest themselves.
+  - The Pumpworks entrance mite moved further in.
+  - The Cistern's dead-end crawl nook is a real tunnel.
+  - The grinder spot moved away from the workbench.
+  - The intro charter shows six steps, and Grubb lists six.
+  - The title's small print waits for the menu.
+  - Text fixes: tab names (GROW/DRY/GRIND), queued-job times, repeated toasts fold into one, the receipt, Grubb's crate line, the spoons, and the Controls heading.
+- **Not done:**
+  - The tracker isn't collapsed to one line outside the Burrow (fading covers most of it).
+  - The Pumpworks isn't gated behind a crafted item.
+  - There's no early button-paying order.
+  - Parties are still dangerous once they've seen you; the fix there is more escape routes, not weaker heroes.
 
 ---
 

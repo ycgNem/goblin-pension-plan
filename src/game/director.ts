@@ -14,8 +14,10 @@ import { markSpent, placementKey, shiftIndex } from './world-state';
 
 /** Seconds of warning (footsteps, the strip) before anyone appears. */
 export const WARNING_TIME = 6;
-/** The story contract starts this long after you first arrive in the Galleries. */
-export const STORY_CONTRACT_DELAY = 40;
+/** The story contract starts this long after you arrive in the Galleries, or as soon as you go near the nest. */
+export const STORY_CONTRACT_DELAY = 15;
+/** "Near the nest", in tiles beyond the edge of its zone. */
+export const STORY_CONTRACT_NEAR = 6;
 /** Longest an event can run live before it wraps up regardless. */
 const OVERTIME = 30;
 
@@ -31,7 +33,8 @@ export interface EventState {
 export function currentEvent(save: SaveData): EventState {
   const shift = shiftIndex(save.playTime);
   if (save.event.shift !== shift) save.event = { shift, status: 'pending' };
-  const id = eventForShift(shift);
+  // The story's contract waits for the goblin: until it has played, it's every shift's event.
+  const id = save.flags.beginnerContractDone ? eventForShift(shift) : 'beginnerContract';
   return { id, shift, status: save.event.status, startsAt: shift * SHIFT_SECONDS + EVENTS[id].startAt };
 }
 
@@ -99,6 +102,8 @@ export class LiveEvent {
   t = 0;
   readonly members: Human[] = [];
   private workT = 0;
+  /** Adventurer kills in the scene when the event began. Later ones in the zone mean the party cleared it. */
+  private readonly killsAtStart: number;
   private resolved = false;
   private guardT = -1;
 
@@ -108,6 +113,7 @@ export class LiveEvent {
     private readonly scene: Scene,
     private readonly hooks: LiveEventHooks,
   ) {
+    this.killsAtStart = scene.heroKills.length;
     hooks.warn(EVENTS[id].warning);
   }
 
@@ -217,11 +223,15 @@ export class LiveEvent {
     else this.scene.pullCreatures(zx, zy, FIGHT_PULL_RADIUS);
   }
 
-  private isWorkDone(): boolean {
-    if (this.id === 'pipeInspection') return this.workT >= this.def.work;
+  private creaturesInZone(): boolean {
     const zx = this.def.zone.col * TILE + TILE / 2;
     const zy = this.def.zone.row * TILE + TILE / 2;
-    const left = this.scene.creatures.some((c) => !c.dead && Math.hypot(c.x - zx, c.y - zy) <= this.def.zone.r * TILE + 40);
+    return this.scene.creatures.some((c) => !c.dead && Math.hypot(c.x - zx, c.y - zy) <= this.def.zone.r * TILE + 40);
+  }
+
+  private isWorkDone(): boolean {
+    if (this.id === 'pipeInspection') return this.workT >= this.def.work;
+    const left = this.creaturesInZone();
     const busy = this.members.some((m) => m.awareness === 'hostile' || m.awareness === 'searching');
     if (this.workT >= this.def.work + OVERTIME) return true;
     return !left && !busy && this.workT >= this.def.work * 0.4;
@@ -237,8 +247,10 @@ export class LiveEvent {
       finish(this.save, this.id);
       const speaker = this.members.find((m) => !m.gone && m.def.role === 'hero');
       if (speaker && this.id === 'beginnerContract') {
-        const empty = this.workT < 2;
-        const lines = empty ? BARKS.nestEmpty : BARKS.contractDone;
+        const zx = this.def.zone.col * TILE + TILE / 2;
+        const zy = this.def.zone.row * TILE + TILE / 2;
+        const cleared = this.scene.heroKills.slice(this.killsAtStart).some((k) => Math.hypot(k.x - zx, k.y - zy) <= this.def.zone.r * TILE + 40);
+        const lines = cleared ? BARKS.contractDone : BARKS.nestEmpty;
         this.scene.say(speaker, lines[Math.floor(this.scene.rng() * lines.length)]!);
       }
     }

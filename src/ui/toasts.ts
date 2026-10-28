@@ -21,6 +21,12 @@ export class Toasts {
   private items: Toast[] = [];
 
   push(text: string, color: string = PAL.text, icon?: ItemId): void {
+    // Saying the same thing again just keeps the one already up.
+    const same = this.items.find((t) => !t.key && t.text === text);
+    if (same) {
+      same.t = Math.min(same.t, 0.2);
+      return;
+    }
     this.items.push({ text, color, icon, t: 0 });
     if (this.items.length > MAX) this.items.shift();
   }

@@ -1,5 +1,5 @@
 import type { Input } from '../core/input';
-import { VIEW_H, VIEW_W } from '../core/screen';
+import { BASE_H, BASE_W, VIEW_H, VIEW_W } from '../core/screen';
 import { CHAPTER_1, RETIREMENT_LEDGER } from '../data/charter';
 import { MOD_MODES } from '../data/combat';
 import { ITEMS, type ItemDef, type ItemId } from '../data/items';
@@ -18,13 +18,23 @@ const PAGES: readonly [MenuPage, string][] = [['pack', 'PACK'], ['charter', 'CHA
 export interface MenuHooks {
   eat(id: ItemId): void;
   equip(id: ItemId | null): void;
+  /** Pick what the throw key throws (null: back to bottles, then pebbles). */
+  ready(id: ItemId | null): void;
+  /** Put down the stack in this pack slot: into the crate at home, on the floor anywhere else. */
+  drop(slot: number): void;
   sound(id: 'uiMove' | 'uiSelect' | 'uiDenied' | 'uiBack'): void;
 }
 
-const X = 18;
-const Y = 14;
-const W = VIEW_W - 36;
-const H = VIEW_H - 30;
+const W = BASE_W - 36;
+const H = BASE_H - 30;
+/** Top-left of the window: centered in the view, placed every frame. */
+let X = 18;
+let Y = 14;
+
+function place(): void {
+  X = Math.round((VIEW_W - W) / 2);
+  Y = Math.round((VIEW_H - H) / 2);
+}
 
 /** The pack, the Charter and Retirement Ledger, skills, and the map. */
 export class MenuOverlay implements Overlay {
@@ -47,7 +57,8 @@ export class MenuOverlay implements Overlay {
 
   update(dt: number, input: Input): void {
     this.t += dt;
-    if (this.t > 0.15 && (input.wasPressed('Tab') || backPressed(input) || (input.wasPressed('KeyM') && PAGES[this.page]![0] === 'map'))) {
+    place();
+    if (this.t > 0.15 && (input.hit('pack') || input.wasPressed('Tab') || backPressed(input) || (input.hit('map') && PAGES[this.page]![0] === 'map'))) {
       this.hooks.sound('uiBack');
       this.done = true;
       return;
@@ -78,8 +89,12 @@ export class MenuOverlay implements Overlay {
 
     const entries = this.packEntries();
     const slots = packSlots(this.save);
+    // Empty pockets are skipped: there's nothing to do with them.
     const move = (d: number) => {
-      this.sel = (this.sel + d + entries.length) % entries.length;
+      for (let n = 0; n < entries.length; n++) {
+        this.sel = (this.sel + d + entries.length) % entries.length;
+        if (entries[this.sel]) break;
+      }
       this.hooks.sound('uiMove');
     };
     if (input.wasPressed('KeyW') || input.wasPressed('ArrowUp')) move(-1);
@@ -91,12 +106,17 @@ export class MenuOverlay implements Overlay {
         if (m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h) this.sel = i;
       });
     }
+    if ((input.wasPressed('KeyX') || input.wasPressed('Delete')) && this.sel < slots && entries[this.sel]) {
+      this.hooks.drop(this.sel);
+      return;
+    }
     if (confirmPressed(input) || input.wasPressed('KeyF')) {
       const id = entries[this.sel];
       if (!id) return;
       const def = ITEMS[id];
       if (def.category === 'food') this.hooks.eat(id);
       else if (MOD_MODES[id]) this.hooks.equip(this.save.equippedMod === id ? null : id);
+      else if (def.category === 'throwable') this.hooks.ready(this.save.readyThrow === id ? null : id);
       else this.hooks.sound('uiDenied');
     }
   }
@@ -108,6 +128,7 @@ export class MenuOverlay implements Overlay {
   }
 
   draw(hud: Hud, time: number): void {
+    place();
     hud.fade(0.4);
     hud.panel(X, Y, W, H);
     PAGES.forEach(([, label], i) => {
@@ -151,7 +172,7 @@ export class MenuOverlay implements Overlay {
       hud.icon(id, r.x + Math.floor(r.w / 2) - 5, r.y + Math.floor(r.h / 2) - 6);
       const qty = i < slots ? this.save.pack[i]?.qty ?? 0 : this.save.keyItems[id] ?? 0;
       if (i < slots || qty > 1) hud.text(String(qty), r.x + r.w - 2, r.y + r.h - 10, { size: 7, align: 'right', edge: 'outline' });
-      if (this.save.equippedMod === id) hud.fill(r.x + 2, r.y + 2, 3, 3, UI.good);
+      if (this.save.equippedMod === id || this.save.readyThrow === id) hud.fill(r.x + 2, r.y + 2, 3, 3, UI.good);
     });
     if (entries.length > slots) hud.text('KEY ITEMS', X + 14, Y + 40 + Math.ceil(slots / 3) * 28 + 12, { font: 'head', size: 6, color: UI.faint });
 
@@ -185,12 +206,20 @@ export class MenuOverlay implements Overlay {
         cy += 9;
       }
     }
-    const action = def.category === 'food' ? 'Eat' : MOD_MODES[id] ? (this.save.equippedMod === id ? 'Unequip' : 'Equip') : null;
-    if (action) keyHints(hud, [['E', action]], dx + 8, Y + 166);
+    const action =
+      def.category === 'food' ? 'Eat'
+      : MOD_MODES[id] ? (this.save.equippedMod === id ? 'Unequip' : 'Equip')
+      : def.category === 'throwable' ? (this.save.readyThrow === id ? 'Stop throwing these' : 'Throw these first')
+      : null;
+    const hints: [string, string][] = [];
+    if (action) hints.push(['E', action]);
+    if (!isKeyItem(id)) hints.push(['X', this.region === HOME_REGION ? 'Put in the crate' : 'Drop']);
+    if (hints.length) keyHints(hud, hints, dx + 8, Y + 166);
   }
 
   private drawCharter(hud: Hud): void {
     const next = nextCharterStep(this.save);
+    const stamped = this.save.flags.charterStamp1 === true;
     hud.text('BURROW CHARTER', X + 14, Y + 32, { font: 'head', size: 8, color: UI.gold });
     hud.text(`Chapter One: ${CHAPTER_1.title}`, X + 14, Y + 45, { size: 8, color: UI.dim });
     CHAPTER_1.steps.forEach((step, i) => {
@@ -202,7 +231,6 @@ export class MenuOverlay implements Overlay {
       hud.text(`${i + 1}. ${step.title}`, X + 28, sy, { size: 8, color: done ? UI.faint : current ? UI.text : UI.dim });
       if (current) hud.text(step.objective, X + 28, sy + 10, { size: 7, color: UI.gold });
     });
-    const stamped = this.save.flags.charterStamp1 === true;
     hud.text(stamped ? 'STAMP #1: RECOGNIZED WORKSHOP' : 'STAMP #1: NOT YET', X + 14, Y + 192, { font: 'head', size: 6, color: stamped ? UI.good : UI.faint });
 
     const lx = X + 236;
@@ -214,13 +242,16 @@ export class MenuOverlay implements Overlay {
       this.save.upgrades.includes('repairWorkbench') && (this.save.upgrades.includes('dryingRack') || this.save.upgrades.includes('boneGrinder')),
       false,
       false,
-      false,
+      this.save.flags.occupancyPaid === true,
     ];
     RETIREMENT_LEDGER.pillars.forEach((p, i) => {
       const py = Y + 52 + i * 13;
-      const locked = p.chapter > 1;
+      // Occupancy rights open up once the workshop is recognized: buttons are the pension plan.
+      const payable = i === 5 && stamped;
+      const locked = p.chapter > 1 && !payable;
       hud.text(pillarDone[i] ? '[x]' : '[ ]', lx + 8, py, { size: 7, color: UI.ink, edge: 'none' });
-      hud.text(p.text, lx + 26, py, { size: 7, color: locked ? '#8a7a60' : UI.ink, edge: 'none' });
+      const label = payable && !pillarDone[i] ? `Occupancy: ${this.save.occupancy}/${RETIREMENT_LEDGER.occupancyPrice} paid` : p.text;
+      hud.text(label, lx + 26, py, { size: 7, color: locked ? '#8a7a60' : UI.ink, edge: 'none' });
       if (locked) hud.sprite(LOCK_ICON, lx + W - 264, py);
     });
     hud.text('personal goals', lx + 8, Y + 128, { size: 7, color: UI.inkDim, edge: 'none' });
@@ -271,15 +302,17 @@ export class MenuOverlay implements Overlay {
       cistern: [X + 320, Y + 90],
       pumpworks: [X + 320, Y + 170],
     };
-    const links: { a: RegionId; b: RegionId; crawl: boolean; open: boolean }[] = [];
+    const links: { a: RegionId; b: RegionId; crawl: boolean; open: boolean; lane: number }[] = [];
     for (const a of REGION_IDS) {
       for (const link of Object.values(REGIONS[a].exits)) {
         if (a > link.to) continue;
         const gated = (REGIONS[a].gatedExits ?? []).some((g) => REGIONS[a].exits[g] === link);
         const flag = REGIONS[a].gateFlag;
         const open = !gated || (flag !== undefined && this.save.flags[flag] === true);
-        if (links.some((l) => l.a === a && l.b === link.to && l.crawl === !!link.crawl)) continue;
-        links.push({ a, b: link.to, crawl: !!link.crawl, open });
+        if (links.some((l) => l.a === a && l.b === link.to && l.crawl === !!link.crawl && l.open === open)) continue;
+        // A second way between the same two places runs alongside the first.
+        const lane = links.filter((l) => l.a === a && l.b === link.to).length;
+        links.push({ a, b: link.to, crawl: !!link.crawl, open, lane });
       }
     }
     // Shortest open route home, highlighted.
@@ -305,15 +338,21 @@ export class MenuOverlay implements Overlay {
       if (!visited.has(l.a) && !visited.has(l.b)) continue;
       const [ax, ay] = pos[l.a];
       const [bx, by] = pos[l.b];
-      const home = route.has([l.a, l.b].sort().join('-'));
-      const color = !l.open ? '#4a4638' : home ? UI.gold : '#9a9480';
-      const off = l.crawl ? 3 : -3;
-      const steps = Math.ceil(Math.hypot(bx - ax, by - ay) / 2);
-      for (let i = 0; i <= steps; i++) {
-        if (l.crawl && i % 3 === 0) continue;
-        if (!l.open && i % 2 === 0) continue;
-        const k = i / steps;
-        hud.fill(Math.round(ax + (bx - ax) * k), Math.round(ay + (by - ay) * k + off), home ? 2 : 1, home ? 2 : 1, color);
+      const len = Math.hypot(bx - ax, by - ay);
+      // Side by side, across the line: lanes 0 and 1 sit either side of the middle.
+      const pair = links.some((o) => o !== l && o.a === l.a && o.b === l.b);
+      const side = pair ? (l.lane === 0 ? -4 : 4) : 0;
+      const nx = (-(by - ay) / len) * side;
+      const ny = ((bx - ax) / len) * side;
+      const home = l.open && route.has([l.a, l.b].sort().join('-'));
+      const color = !l.open ? '#8a4a3a' : home ? UI.gold : '#b0aa94';
+      const size = home ? 2 : 1;
+      // Passages are solid, crawl pipes are dotted, shut ways are dashed.
+      for (let i = 0; i <= len; i++) {
+        if (l.crawl && l.open && i % 4 !== 0) continue;
+        if (!l.open && i % 6 >= 3) continue;
+        const k = i / len;
+        hud.fill(Math.round(ax + (bx - ax) * k + nx), Math.round(ay + (by - ay) * k + ny), size, size, color);
       }
     }
     for (const id of REGION_IDS) {
@@ -325,7 +364,20 @@ export class MenuOverlay implements Overlay {
       hud.text(known ? (id === HOME_REGION ? 'home' : REGIONS[id].safe ? 'safe' : 'dangerous') : 'unexplored', cx, cy + 2, { size: 6, color: UI.faint, align: 'center' });
       if (here && Math.floor(time * 2) % 2 === 0) hud.text('YOU ARE HERE', cx, cy - 22, { font: 'head', size: 6, color: UI.gold, align: 'center' });
     }
-    hud.text('—— passage   - - crawl pipe   · · · shut', X + W - 14, Y + H - 30, { size: 7, color: UI.faint, align: 'right' });
-    if (this.region !== HOME_REGION) hud.text('Gold line: the way home.', X + W - 14, Y + H - 40, { size: 7, color: UI.gold, align: 'right' });
+    // The key, drawn with the same strokes as the map.
+    const kx = X + 14;
+    const ky = Y + H - 26;
+    const legend: [string, string, (i: number) => boolean][] = [
+      ['passage', '#b0aa94', () => true],
+      ['crawl pipe', '#b0aa94', (i) => i % 4 === 0],
+      ['shut', '#8a4a3a', (i) => i % 6 < 3],
+      ['way home', UI.gold, () => true],
+    ];
+    legend.forEach(([label, color, on], n) => {
+      const lx = kx + n * 92;
+      const thick = label === 'way home' ? 2 : 1;
+      for (let i = 0; i < 16; i++) if (on(i)) hud.fill(lx + i, ky + 4, thick, thick, color);
+      hud.text(label, lx + 20, ky, { size: 7, color: label === 'way home' ? UI.gold : UI.dim });
+    });
   }
 }

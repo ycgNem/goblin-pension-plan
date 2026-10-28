@@ -320,7 +320,7 @@ Machines are simple: short timers, small queues, visible progress.
 A huge Scrapback with the pump's copper flywheel grown into her shell. She nests in the Old Pump Room.
 
 - **Phase 1:** slow turning charges. Her armored front blocks every shot. Get behind her.
-- **Phase 2 (at 60% health):** she calls Bone Mites from vents. Two **steam valves** on the walls can be turned with E to blast steam across the room, which stuns her for 3s and flips her onto her back so her belly is exposed.
+- **Phase 2 (at 60% health):** she clamps her shell shut all the way round, turns faster, and calls Bone Mites from vents. Two **steam valves** on the walls can be turned with E to blast steam down into the room, which stuns her for 3s and flips her onto her back so her belly is exposed (double damage). Flipping her is the only way through her shell, so phase 2 asks for the valves instead of more circling.
 - **Defeat:** the flywheel falls off her shell, and you get the **Flywheel Coil**. The pump room becomes a safe shortcut back to the Cistern.
 - If you lose, the fight resets (the Rat Union rule applies). Her health doesn't carry over.
 
@@ -351,7 +351,7 @@ Five hand-built regions joined by exits. It's compact, connected, and full of la
  └─────────────┘          │ rat nest, carts   │         │ glowcaps,      │
        │ crawl            └───────────────────┘         │ sluice gate    │
        │ (unlocked by        │ crawl                    └────────────────┘
-       │  Galleries map)     ▼                             │ main  ┊ sluice (event/valve)
+       │  Galleries map)     ▼                             │ crawl ┊ sluice (event/valve)
  ┌─────────────────┐   ┌──────────────┐                    ▼       ┊
  │ GOBLIN COOP     │<──│ (crawl pipe) │              ┌────────────────┐
  │ Grubb, the Hatch│   └──────────────┘              │ OLD PUMPWORKS  │
@@ -364,7 +364,7 @@ Five hand-built regions joined by exits. It's compact, connected, and full of la
 - **The Burrow:** safe home and production.
 - **Refuse Galleries:** rubbish from the city chutes, introductory scavenging, rats, the first adventurer encounter. Landmark: a giant fallen chandelier.
 - **Fungus Cistern:** Glowcaps, slime pools, Brine Truffles, the Pipe Inspector event. Landmark: a flooded statue of a city founder with a mushroom growing on its head.
-- **Old Pumpworks:** dangerous. Copper machinery, beetles, mites, and the Pump Room boss. Landmark: an enormous seized piston.
+- **Old Pumpworks:** dangerous. Copper machinery, beetles, mites, and the Pump Room boss. Landmark: an enormous seized piston. The way down from the Cistern starts with a crawl pipe, so nobody follows you in.
 - **Goblin Cooperative:** safe trading space, reached by a crawl pipe from the Galleries. Registrar Grubb, the Hatch, and the Activity Board.
 
 **Map screen (M):** a schematic node graph of discovered regions, exits, and shortcuts, with a "You are here" marker and a "home" route highlight.
@@ -373,7 +373,7 @@ Five hand-built regions joined by exits. It's compact, connected, and full of la
 
 ## 15. Presentation
 
-- **Rendering:** the game draws to a 480×270 internal canvas, scaled up by whole-number multiples with no smoothing, so it looks crisp and pixel-art-like. Tiles are 16×16. Text goes on a second, full-resolution canvas on top (Pixelify Sans for body text, Silkscreen for headings), so it stays sharp at any scale.
+- **Rendering:** the game draws to a low-resolution canvas, 480×270 at its smallest, that widens or deepens to the window's shape (up to 640×360), so it always fills the screen with no black bars. It's scaled up "sharp bilinear": nearest-neighbor to the next whole multiple, then smoothly down to the window, so pixels stay crisp at any size. Tiles are 16×16. Title, intro, and windows are laid out on a centered 480×270 stage. Text goes on a second, full-resolution canvas on top (Pixelify Sans for body text, Silkscreen for headings), so it stays sharp at any scale. The game goes fullscreen on the first key press (a setting), and Alt+Enter toggles it.
 - **Palette:** damp stone greys, rusty oranges, sickly dungeon green (`#7fbf5a` glow on `#1a1f1c` stone), and warm home orange (`#f0a040`). Each region has its own floor and wall style: dirt and rough stone at home, flagstones and brick in the Galleries, wet blocks in the Cistern, riveted plates in the Pumpworks, planks and plaster with sock bunting at the Cooperative.
 - **Lighting:** each region has a darkness level. Lights (the goblin's own glow, torches, the grate, lanterns, the pot fire, glowcaps, muzzle flashes) are banded, dithered sprites added onto a light map, which is multiplied over the scene, with a soft glow added on top. The Burrow's darkness warms as it gets cozier. A frame vignette is always there; red edge glows mean you're hurt, on your last heart, or spotted.
 - **Art:** drawn in code. Characters and icons are string sprites with 3-tone shading and outlines. Props, portraits, and backdrops use a small pixel painter (whole-pixel shapes, ball shading, outlines) and are cached on first use. The Burrow has hand-placed set dressing (a braided rug worn thin in the middle, chalk tallies and a drawing of a house, roots, cobwebs, rubbish) so it looks lived in from the start.
@@ -406,7 +406,7 @@ Also: pickup toasts ("+3 Scrap"), skill-up banners, a confirmed save reset in th
 2. **0:30** Enter the Refuse Galleries. Search junk piles for scrap and timber. A little later, a rat pack attacks (first fight).
 3. **4:00** Footsteps overhead. A party enters for the Beginner Contract. You hide behind a cart or slip into a crawlspace while they clear the rat nest. Afterward you loot the smashed crates.
 4. **7:00** Return home. Craft a Board Patch and patch the holes. **The Burrow visibly changes** (warmer light, fewer drafts). Charter step 1 is done.
-5. **9:00** Repair the workbench (step 3). It needs scrap, which is one more trip into the Galleries.
+5. **9:00** Repair the workbench (step 3). Its fourth leg is glued on with slime, so it means a first trip into the Fungus Cistern.
 6. **12:00** Find the crawl pipe to the Cooperative. Meet Grubb and the Hatch. Read the Activity Board.
 7. **15:00** Visit the Cistern for slime and glowcaps. Build the mushroom bed (step 2). The Pipe Inspector event shows you the sluice shortcut.
 8. **20:00+** Pumpworks, copper, the boss, the generator, the production order, and the stamp.

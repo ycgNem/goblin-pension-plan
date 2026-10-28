@@ -12,6 +12,8 @@ export interface BakeOptions {
   region: RegionId;
   /** Burrow only: the holes have been patched (Board Patch). */
   holesPatched: boolean;
+  /** Burrow only: the Slime Generator is built, and piped to the workbench and grinder. */
+  generatorPipes?: boolean;
 }
 
 type FloorPattern = 'flags' | 'dirt' | 'wet' | 'plates' | 'planks';
@@ -93,6 +95,7 @@ export class WorldRenderer {
     }
     if (opts.region === 'coop') this.drawBunting(ctx, map);
     if (opts.region === 'burrow') drawBurrowDressing(ctx, map, opts.holesPatched);
+    if (opts.region === 'burrow' && opts.generatorPipes) drawGeneratorPipes(ctx, map);
   }
 
   drawTerrain(ctx: CanvasRenderingContext2D, view: View, time: number): void {
@@ -768,6 +771,37 @@ function drawBurrowDressing(ctx: CanvasRenderingContext2D, map: TileMap, patched
   for (let x = 17 * TILE; x < 25 * TILE; x += 2) {
     const h = hash2(x, 6);
     if (h > 0.45) dot(ctx, x, 6 * TILE + 4 + Math.floor(h * 8), 'rgba(150, 120, 90, 0.18)', 2, 1);
+  }
+}
+
+/** Copper pipes along the floor from the Slime Generator to the workbench and the grinder spot. */
+function drawGeneratorPipes(ctx: CanvasRenderingContext2D, map: TileMap): void {
+  const at = (glyph: string) => map.spawns.find((s) => s.glyph === glyph);
+  const gen = at('G');
+  if (!gen) return;
+  const run = (x0: number, y0: number, x1: number, y1: number) => {
+    const [ax, bx] = [Math.min(x0, x1), Math.max(x0, x1)];
+    const [ay, by] = [Math.min(y0, y1), Math.max(y0, y1)];
+    if (y0 === y1) {
+      dot(ctx, ax, ay - 1, '#f0a060', bx - ax, 1);
+      dot(ctx, ax, ay, '#c87533', bx - ax, 2);
+      dot(ctx, ax, ay + 2, '#6a3a18', bx - ax, 1);
+      for (let x = ax + 6; x < bx; x += 18) dot(ctx, x, ay - 2, '#8a4a20', 2, 6);
+    } else {
+      dot(ctx, ax - 1, ay, '#f0a060', 1, by - ay);
+      dot(ctx, ax, ay, '#c87533', 2, by - ay);
+      dot(ctx, ax + 2, ay, '#6a3a18', 1, by - ay);
+      for (let y = ay + 6; y < by; y += 18) dot(ctx, ax - 2, y, '#8a4a20', 6, 2);
+    }
+  };
+  const y = gen.row * TILE + 14;
+  const gx = gen.col * TILE + 8;
+  for (const glyph of ['W', 'R']) {
+    const s = at(glyph);
+    if (!s) continue;
+    const sx = s.col * TILE + 11;
+    run(gx, y, sx, y);
+    if (s.row !== gen.row) run(sx, s.row * TILE + 12, sx, y);
   }
 }
 

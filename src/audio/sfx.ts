@@ -41,6 +41,21 @@ export const SFX = {
     hiss(v, { dur: 0.08, vol: 0.08, freq: 800 * p });
     tone(v, { type: 'sine', freq: 500 * p, to: 250 * p, dur: 0.08, vol: 0.06 });
   },
+  clank: (v, p) => {
+    tone(v, { type: 'square', freq: 1800 * p, to: 1500 * p, dur: 0.05, vol: 0.05 });
+    tone(v, { type: 'triangle', freq: 2700 * p, dur: 0.12, vol: 0.05, delay: 0.01 });
+    hiss(v, { dur: 0.03, vol: 0.05, filter: 'highpass', freq: 5000 });
+  },
+  beetleHiss: (v, p) => hiss(v, { dur: 0.3, vol: 0.07, filter: 'bandpass', freq: 2200 * p, to: 900 * p, q: 3 }),
+  matronRoar: (v, p) => {
+    tone(v, { type: 'sawtooth', freq: 70 * p, to: 45 * p, dur: 0.7, vol: 0.12, attack: 0.05 });
+    tone(v, { type: 'square', freq: 105 * p, to: 60 * p, dur: 0.6, vol: 0.06, attack: 0.05 });
+    hiss(v, { dur: 0.6, vol: 0.08, filter: 'bandpass', freq: 500, to: 250, q: 1, attack: 0.05 });
+  },
+  valveTurn: (v) => {
+    for (let i = 0; i < 3; i++) tone(v, { type: 'square', freq: 260 - i * 30, dur: 0.05, vol: 0.05, delay: i * 0.07 });
+    hiss(v, { dur: 1.1, vol: 0.12, filter: 'highpass', freq: 2200, attack: 0.08, delay: 0.15 });
+  },
   miteClick: (v, p) => {
     for (let i = 0; i < 3; i++) hiss(v, { dur: 0.015, vol: 0.06, filter: 'highpass', freq: 4000 * p, delay: i * 0.05 });
   },
@@ -94,6 +109,17 @@ export const SFX = {
     bellPartials({ ...v, t: v.t + 0.5 }, 1046, 0.08, 1.4);
   },
   plant: (v) => hiss(v, { dur: 0.25, vol: 0.08, filter: 'bandpass', freq: 400, q: 1.5 }),
+  generatorHum: (v) => {
+    tone(v, { type: 'sawtooth', freq: 55, to: 110, dur: 0.6, vol: 0.06, attack: 0.1 });
+    tone(v, { type: 'sine', freq: 220, to: 440, dur: 0.5, vol: 0.05, attack: 0.1 });
+  },
+  coins: (v, p) => {
+    for (let i = 0; i < 3; i++) tone(v, { type: 'triangle', freq: (1500 + i * 260) * p, dur: 0.06, vol: 0.06, delay: i * 0.05 });
+  },
+  stamp: (v) => {
+    tone(v, { type: 'square', freq: 120, to: 50, dur: 0.18, vol: 0.16 });
+    hiss(v, { dur: 0.12, vol: 0.16, freq: 900, to: 200 });
+  },
 
   // World
   shiftBell: (v) => {

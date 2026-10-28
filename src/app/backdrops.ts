@@ -5,7 +5,13 @@ import { art, type Painter } from '../render/paint';
 // Painted backdrops for the title screen and the story intro. Static layers are painted once;
 // title.ts and intro.ts animate on top (falling rubbish, bells, torches, steam).
 
-export const TITLE_H = 340;
+/** The title backdrop is wider and taller than the base view, so it fills any window shape. */
+export const TITLE_W = 640;
+export const TITLE_H = 380;
+/** Where the 480-wide composition starts inside the wide title backdrop. */
+export const TITLE_OX = (TITLE_W - 480) / 2;
+/** The camera's pan ends with this backdrop row at the bottom of the screen. */
+export const TITLE_REST_BOTTOM = 340;
 export const GROUND_Y = 132;
 
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -35,12 +41,12 @@ function stars(p: Painter, w: number, h: number): void {
 }
 
 /** Bellmarket's rooftops and bell towers against the sky. Returns the bell positions. */
-function skyline(p: Painter, baseY: number, w: number, dark = '#17141f', lit = '#f0b050'): [number, number][] {
+function skyline(p: Painter, baseY: number, w: number, dark = '#17141f', lit = '#f0b050', ox = 0): [number, number][] {
   const bells: [number, number][] = [];
   let x = -6;
   while (x < w) {
     const bw = 14 + Math.floor(p.rng() * 26);
-    const tower = bells.length < 3 && (x > 70 + bells.length * 140 && x < 110 + bells.length * 140);
+    const tower = bells.length < 3 && (x > ox + 70 + bells.length * 140 && x < ox + 110 + bells.length * 140);
     const bh = tower ? 64 + p.rng() * 16 : 18 + Math.floor(p.rng() * 30);
     const top = baseY - bh;
     p.rect(x, top, bw, bh, dark);
@@ -121,6 +127,7 @@ export interface TitleArt {
   goblin: { x: number; y: number };
   pot: { x: number; y: number };
   lantern: { x: number; y: number };
+  moon: { x: number; y: number };
 }
 
 let titleCache: TitleArt | null = null;
@@ -128,39 +135,41 @@ let titleCache: TitleArt | null = null;
 /** The title screen: Bellmarket at dusk above, the dungeon below, and one lit alcove. */
 export function titleArt(): TitleArt {
   if (titleCache) return titleCache;
-  const W = 480;
+  const W = TITLE_W;
+  const ox = TITLE_OX;
   let bells: [number, number][] = [];
-  const cx = 300;
+  const cx = ox + 300;
   const cy = 270;
   const canvas = art('backdrop:title', W, TITLE_H, (p) => {
     bands(p, 0, 0, W, GROUND_Y - 20, DUSK);
     stars(p, W, 60);
-    p.ellipse(84, 30, 11, 11, '#f0e8c8');
-    p.ellipse(88, 28, 9, 9, '#e0d4b0');
-    p.px(80, 27, '#c8bc98');
-    p.px(83, 33, '#c8bc98');
+    p.ellipse(ox + 84, 30, 11, 11, '#f0e8c8');
+    p.ellipse(ox + 88, 28, 9, 9, '#e0d4b0');
+    p.px(ox + 80, 27, '#c8bc98');
+    p.px(ox + 83, 33, '#c8bc98');
     // A far, hazy row of roofs, then the near skyline.
     skyline(p, GROUND_Y - 6, W, '#2a2034', '#7a5040');
-    bells = skyline(p, GROUND_Y, W);
+    bells = skyline(p, GROUND_Y, W, undefined, undefined, ox);
     cobbles(p, GROUND_Y, W);
     earth(p, GROUND_Y + 8, TITLE_H, W);
     pipe(p, 0, W, GROUND_Y + 22);
-    pipe(p, 0, 200, GROUND_Y + 40, true);
-    pipe(p, 380, W, GROUND_Y + 56);
+    pipe(p, 0, ox + 200, GROUND_Y + 40, true);
+    pipe(p, ox + 380, W, GROUND_Y + 56);
     // The rubbish chute from a street grate down to the Galleries.
-    p.rect(146, GROUND_Y - 1, 14, 3, '#5a5e64');
-    for (let x = 147; x < 159; x += 3) p.vline(x, GROUND_Y - 1, 3, '#2a2c30');
-    p.rect(148, GROUND_Y + 8, 10, 120, '#0a0806');
-    p.vline(147, GROUND_Y + 8, 120, '#3a3430');
-    p.vline(158, GROUND_Y + 8, 120, '#3a3430');
-    p.ball(153, GROUND_Y + 132, 26, 9, '#4e463c', '#665c4c', '#38322b');
-    p.speckle(130, GROUND_Y + 124, 46, 12, '#8a9096', 30);
-    p.speckle(130, GROUND_Y + 124, 46, 12, '#9a5a30', 20);
+    const ch = ox + 146;
+    p.rect(ch, GROUND_Y - 1, 14, 3, '#5a5e64');
+    for (let x = ch + 1; x < ch + 13; x += 3) p.vline(x, GROUND_Y - 1, 3, '#2a2c30');
+    p.rect(ch + 2, GROUND_Y + 8, 10, 120, '#0a0806');
+    p.vline(ch + 1, GROUND_Y + 8, 120, '#3a3430');
+    p.vline(ch + 12, GROUND_Y + 8, 120, '#3a3430');
+    p.ball(ch + 7, GROUND_Y + 132, 26, 9, '#4e463c', '#665c4c', '#38322b');
+    p.speckle(ch - 16, GROUND_Y + 124, 46, 12, '#8a9096', 30);
+    p.speckle(ch - 16, GROUND_Y + 124, 46, 12, '#9a5a30', 20);
     // Tunnels glowing green at the edges: the dungeon proper.
-    for (const [tx, ty] of [[24, 230], [446, 300], [60, 316]] as const) {
-      p.ellipse(tx, ty, 22, 14, '#0a0c0a');
-      p.softEllipse(tx, ty, 18, 11, '#1e3a22');
-      p.softEllipse(tx, ty + 2, 10, 6, '#2e5a32');
+    for (const [tx, ty] of [[24, 230], [446, 300], [60, 316], [-50, 270], [540, 236], [500, 352]] as const) {
+      p.ellipse(ox + tx, ty, 22, 14, '#0a0c0a');
+      p.softEllipse(ox + tx, ty, 18, 11, '#1e3a22');
+      p.softEllipse(ox + tx, ty + 2, 10, 6, '#2e5a32');
     }
     alcove(p, cx, cy, true);
   });
@@ -174,10 +183,11 @@ export function titleArt(): TitleArt {
   titleCache = {
     canvas,
     bells,
-    chute: { x: 153, top: GROUND_Y + 8, bottom: GROUND_Y + 124 },
+    chute: { x: ox + 153, top: GROUND_Y + 8, bottom: GROUND_Y + 124 },
     goblin: { x: cx - 26, y: cy + 24 },
     pot: { x: cx - 10, y: cy + 10 },
     lantern: { x: cx + 18, y: cy - 2 },
+    moon: { x: ox + 84, y: 30 },
   };
   return titleCache;
 }

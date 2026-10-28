@@ -40,7 +40,7 @@ export const CHAPTER_1 = {
     { title: 'Repair the home', objective: 'Patch the holes in the Burrow (Board Patch)', check: { kind: 'upgrade', id: 'patchHoles' } },
     { title: 'Build a mushroom bed', objective: 'Build a Mushroom Bed', check: { kind: 'upgrade', id: 'mushroomBed' } },
     { title: 'Construct a scrap workbench', objective: 'Repair the Scrap Workbench', check: { kind: 'upgrade', id: 'repairWorkbench' } },
-    { title: 'Recover a power component', objective: 'Take the Flywheel Coil from the Old Pumpworks', check: { kind: 'flag', flag: 'flywheelRecovered' } },
+    { title: 'Recover a power component', objective: 'Find the Flywheel Coil: Cistern, then the pipe down', check: { kind: 'flag', flag: 'flywheelRecovered' } },
     { title: 'Activate the slime generator', objective: 'Build and fuel the Slime Generator', check: { kind: 'flag', flag: 'generatorActive' } },
     { title: 'Complete a production order', objective: 'Deliver 4 Dried Rations and 2 Slime Cells to Grubb', check: { kind: 'flag', flag: 'coopOrder1Delivered' } },
   ] satisfies CharterStep[],

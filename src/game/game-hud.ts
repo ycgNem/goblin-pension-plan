@@ -1,3 +1,4 @@
+import { actionLabel } from '../core/keys';
 import { clamp } from '../core/math';
 import { VIEW_H, VIEW_W } from '../core/screen';
 import { SHIFT_SECONDS } from '../data/economy';
@@ -44,7 +45,8 @@ export class Banners {
   }
 
   update(dt: number): void {
-    const b = this.queue[0];
+    // A big banner waits for the region name to clear, so the two never stack.
+    const b = this.region ? undefined : this.queue[0];
     if (b) {
       b.t += dt;
       if (b.t >= b.life) this.queue.shift();
@@ -67,7 +69,7 @@ export class Banners {
       hud.text(r.subtitle, VIEW_W / 2, y + 25, { size: 8, align: 'center', edge: 'outline', color: PAL.textDim });
       hud.setAlpha(1);
     }
-    const b = this.queue[0];
+    const b = this.region ? undefined : this.queue[0];
     if (b) {
       const a = clamp(b.t / 0.25, 0, 1) * clamp((b.life - b.t) / 0.5, 0, 1);
       const pop = 1 - clamp(b.t / 0.18, 0, 1);
@@ -107,32 +109,42 @@ export class Banners {
       const def = HINTS[h.id];
       const a = clamp(h.t / 0.3, 0, 1) * clamp((h.life - h.t) / 0.5, 0, 1);
       hud.setAlpha(a);
-      const keysW = def.keys.reduce((sum, k) => sum + Math.max(9, Math.ceil(hud.measure(k, 6, 'head')) + 5) + 2, 0);
+      const labels = def.keys.map((k) => (k === 'LMB' ? k : actionLabel(k)));
+      const keysW = labels.reduce((sum, k) => sum + Math.max(9, Math.ceil(hud.measure(k, 6, 'head')) + 5) + 2, 0);
       const w = keysW + hud.measure(def.text, 8) + 20;
       const x = 6;
       const y = VIEW_H - 24;
       hud.panel(x, y, w, 18, 'light');
       let kx = x + 6;
-      for (const k of def.keys) kx += hud.key(k, kx, y + 4) + 2;
+      for (const k of labels) kx += hud.key(k, kx, y + 4) + 2;
       hud.text(def.text, kx + 4, y + 5, { size: 8 });
       hud.setAlpha(1);
     }
   }
 }
 
-export function drawObjective(hud: Hud, title: string, text: string, done: number, total: number, flash: number): void {
+/** Where a HUD panel sits, in view pixels. */
+export interface PanelRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function drawObjective(hud: Hud, title: string, text: string, done: number, total: number, flash: number): PanelRect {
   const w = Math.max(hud.measure(text, 8), 110) + 14;
   hud.panel(4, 16, w, 26);
   if (flash > 0) hud.fill(5, 17, w - 2, 24, `rgba(240, 192, 64, ${flash * 0.25})`);
   hud.text(title, 10, 20, { font: 'head', size: 6, color: UI.gold });
   if (total > 0) hud.text(`${done}/${total}`, w - 2, 20, { font: 'head', size: 6, color: UI.dim, align: 'right' });
   hud.text(text, 10, 29, { size: 8 });
+  return { x: 4, y: 16, w, h: 26 };
 }
 
 /** The pinned recipe or upgrade: what it needs, what you have, and where to find the rest. */
-export function drawTracked(hud: Hud, save: SaveData): void {
+export function drawTracked(hud: Hud, save: SaveData): PanelRect | null {
   const t = save.tracked;
-  if (!t) return;
+  if (!t) return null;
   const r: RecipeDef | null = t.kind === 'recipe' ? RECIPES[t.id] : null;
   const name = r ? r.name : UPGRADES[t.id as keyof typeof UPGRADES].name;
   const cost: ItemBag = r ? r.inputs : UPGRADES[t.id as keyof typeof UPGRADES].cost;
@@ -152,12 +164,35 @@ export function drawTracked(hud: Hud, save: SaveData): void {
     if (done) hud.sprite(CHECK_ICON, 44, iy + 1);
     else hud.text((ITEMS[id] as ItemDef).source ?? ITEMS[id].name, 44, iy, { size: 7, color: UI.dim });
   });
+  return { x: 4, y, w, h };
 }
 
 export function drawHearts(hud: Hud, hp: number, max: number, time: number): void {
   const low = hp <= 2;
   const pulse = low ? Math.max(0, Math.sin(time * 7)) * 1.5 : 0;
   hud.hearts(hp, max, 6, 5, pulse);
+}
+
+/** What the throw key throws, beside the hearts: a pebble is free, everything else shows how many are left. Returns its right edge. */
+export function drawThrowable(hud: Hud, kind: 'pebble' | 'bottle' | 'stinkbrew', count: number, x: number): number {
+  const y = 3;
+  const kx = x + hud.key(actionLabel('throw'), x, y) + 3;
+  if (kind === 'pebble') {
+    hud.fill(kx + 2, y + 4, 3, 3, '#a8a090');
+    hud.fill(kx + 3, y + 3, 2, 1, '#c8c0b0');
+    hud.text('pebble', kx + 8, y + 1, { size: 7, color: UI.faint, edge: 'outline' });
+    return kx + 8 + Math.ceil(hud.measure('pebble', 7));
+  }
+  hud.icon(kind, kx, y);
+  const label = `×${count}`;
+  hud.text(label, kx + 12, y + 1, { size: 7, color: kind === 'stinkbrew' ? '#c8e070' : UI.text, edge: 'outline' });
+  return kx + 12 + Math.ceil(hud.measure(label, 7));
+}
+
+/** The launcher mod that's on, after the throwable. */
+export function drawMod(hud: Hud, mod: ItemId, x: number): void {
+  hud.icon(mod, x, 3);
+  hud.text(ITEMS[mod].name, x + 12, 4, { size: 7, color: '#b8d8f0', edge: 'outline' });
 }
 
 export function drawButtons(hud: Hud, buttons: number): void {
@@ -252,5 +287,16 @@ export function drawHomeArrow(hud: Hud, view: View, tx: number, ty: number, time
 }
 
 export function drawControlsStrip(hud: Hud): void {
-  keyHints(hud, [['TAB', 'Pack'], ['ESC', 'Pause']], VIEW_W - 4, VIEW_H - 13, 'right');
+  keyHints(hud, [[actionLabel('pack'), 'Pack'], [actionLabel('pause'), 'Pause']], VIEW_W - 4, VIEW_H - 13, 'right');
+}
+
+/** A boss's health along the bottom of the screen, with a notch where its second phase starts. */
+export function drawBossBar(hud: Hud, name: string, hp: number, max: number, phase2At: number, time: number, flash: boolean): void {
+  const w = 220;
+  const x = Math.round(VIEW_W / 2 - w / 2);
+  const y = VIEW_H - 34;
+  hud.text(name.toUpperCase(), VIEW_W / 2, y - 10, { font: 'head', size: 7, color: '#f0c0a0', align: 'center', edge: 'outline' });
+  const frac = clamp(hp / max, 0, 1);
+  hud.bar(x, y, w, 7, frac, flash && Math.floor(time * 16) % 2 === 0 ? '#ffffff' : frac <= phase2At ? '#e05030' : '#c84a2a', '#2a1210');
+  hud.fill(x + Math.round(w * phase2At), y - 1, 1, 9, '#f0d070');
 }

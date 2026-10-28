@@ -16,6 +16,16 @@ export function isKeyItem(id: ItemId): boolean {
   return c === 'equipment' || c === 'quest';
 }
 
+/** How many of an item fit in one pack slot. Some equipment raises it (the Bottle Bandolier). */
+export function stackSize(save: SaveData, id: ItemId): number {
+  let stack = def(id).stack;
+  for (const [key, n] of Object.entries(save.keyItems) as [ItemId, number][]) {
+    const raise = def(key).raisesStack;
+    if (n > 0 && raise?.item === id) stack = Math.max(stack, raise.stack);
+  }
+  return stack;
+}
+
 export function packSlots(save: SaveData): number {
   return (save.keyItems.patchedSatchel ?? 0) > 0 ? SATCHEL_SLOTS : PACK_SLOTS;
 }
@@ -39,7 +49,7 @@ export function haveCount(save: SaveData, id: ItemId, withStorage: boolean): num
 /** How many more of an item the pack can take. */
 export function packRoom(save: SaveData, id: ItemId): number {
   if (isKeyItem(id)) return Infinity;
-  const stack = def(id).stack;
+  const stack = stackSize(save, id);
   let room = 0;
   for (const s of save.pack) if (s.item === id) room += stack - s.qty;
   return room + (packSlots(save) - save.pack.length) * stack;
@@ -52,7 +62,7 @@ export function addToPack(save: SaveData, id: ItemId, qty: number): number {
     save.keyItems[id] = (save.keyItems[id] ?? 0) + qty;
     return qty;
   }
-  const stack = def(id).stack;
+  const stack = stackSize(save, id);
   let left = qty;
   for (const s of save.pack) {
     if (s.item !== id || left === 0) continue;

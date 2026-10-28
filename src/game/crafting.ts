@@ -31,6 +31,9 @@ export const STATION_NAMES: Record<StationId, string> = {
 /** Tinkering XP for building things. */
 export const BUILD_XP = { functional: 30, decor: 12 } as const;
 
+/** The Slime Generator: how much charge it holds, and how much one Slime Gel is worth. */
+export const GENERATOR = { capacity: 20, perGel: 5 } as const;
+
 export function skillLevel(save: SaveData, skill: SkillId): number {
   return levelForXp(save.skillXp[skill] ?? 0);
 }
@@ -48,13 +51,38 @@ export function recipeLocks(save: SaveData, id: RecipeId): string[] {
   const req = r.requires;
   if (req?.skill && req.level && skillLevel(save, req.skill) < req.level) locks.push(`${SKILLS[req.skill].name} ${req.level}`);
   if (req?.upgrade && !save.upgrades.includes(req.upgrade)) locks.push(`Needs the ${UPGRADES[req.upgrade].name}`);
-  // Generator power arrives with the Slime Generator (Chapter 1, step 5).
-  if ((r.charge ?? 0) > 0) locks.push('Needs generator power');
+  // Generator power arrives with the Slime Generator (Chapter 1, step 5). Basic recipes never need it.
+  if ((r.charge ?? 0) > 0 && !save.upgrades.includes('slimeGenerator')) locks.push('Needs generator power');
   return locks;
 }
 
+/** Is there enough charge in the generator for this recipe? */
+export function hasCharge(save: SaveData, id: RecipeId): boolean {
+  const r: RecipeDef = RECIPES[id];
+  return save.charge >= (r.charge ?? 0);
+}
+
 export function canCraft(save: SaveData, id: RecipeId, withStorage: boolean): boolean {
-  return recipeLocks(save, id).length === 0 && canAfford(save, RECIPES[id].inputs, withStorage);
+  return recipeLocks(save, id).length === 0 && hasCharge(save, id) && canAfford(save, RECIPES[id].inputs, withStorage);
+}
+
+/** Gels it takes to fill the generator. The last one tops it off, so it never refuses a gel while it has room. */
+export function gelsToFill(save: SaveData): number {
+  return Math.ceil((GENERATOR.capacity - save.charge) / GENERATOR.perGel);
+}
+
+/** Feed the generator Slime Gel (storage first). Returns how much charge went in. */
+export function feedGenerator(save: SaveData, gels: number, withStorage: boolean): number {
+  if (!save.upgrades.includes('slimeGenerator')) return 0;
+  let added = 0;
+  for (let i = 0; i < gels && save.charge < GENERATOR.capacity; i++) {
+    if (!pay(save, { slimeGel: 1 }, withStorage)) break;
+    const add = Math.min(GENERATOR.perGel, GENERATOR.capacity - save.charge);
+    save.charge += add;
+    added += add;
+  }
+  if (added > 0) save.flags.generatorActive = true;
+  return added;
 }
 
 export interface CraftResult {
@@ -67,16 +95,17 @@ export interface CraftResult {
 export function craft(save: SaveData, id: RecipeId, withStorage: boolean): CraftResult | null {
   const r: RecipeDef = RECIPES[id];
   if (r.time) return null;
-  if (recipeLocks(save, id).length > 0) return null;
+  if (recipeLocks(save, id).length > 0 || !hasCharge(save, id)) return null;
   if (!pay(save, r.inputs, withStorage)) return null;
+  save.charge -= r.charge ?? 0;
   give(save, r.output.item, r.output.qty);
   save.stats.crafted++;
   return { item: r.output.item, qty: r.output.qty, xp: { skill: r.skill, amount: r.xp } };
 }
 
-/** Upgrades built at a map glyph ('+' is any hole in the Burrow walls). */
+/** Upgrades built at a map glyph ('+' is any hole in the Burrow walls). Things bought at the Hatch aren't built. */
 export function upgradesAt(glyph: string): UpgradeId[] {
-  return UPGRADE_IDS.filter((id) => UPGRADES[id].spot === glyph);
+  return UPGRADE_IDS.filter((id) => UPGRADES[id].spot === glyph && (UPGRADES[id] as UpgradeDef).price === undefined);
 }
 
 export function upgradeLocks(save: SaveData, id: UpgradeId): string[] {
@@ -115,6 +144,7 @@ export function coziness(save: SaveData): number {
   const weights: Partial<Record<UpgradeId, number>> = {
     patchHoles: 3, scrapLantern: 3, repairWorkbench: 2, mushroomBed: 2, fewerSprings: 2, tooGrandChair: 2,
     notALairSign: 1, secondBowl: 1, dryingRack: 1, shieldPan: 1, slimeGenerator: 2, boneGrinder: 1, secondBed: 1,
+    wallClock: 1, waxFern: 1, gildedPlaque: 1,
   };
   const total = Object.values(weights).reduce((a, b) => a + (b ?? 0), 0);
   const have = save.upgrades.reduce((sum, id) => sum + (weights[id] ?? 0), 0);

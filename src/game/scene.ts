@@ -1,5 +1,5 @@
 import { clamp } from '../core/math';
-import { CREATURES, type CreatureId } from '../data/enemies';
+import { CREATURES, type CreatureDef, type CreatureId } from '../data/enemies';
 import type { ItemId } from '../data/items';
 import { NODES, type NodeId } from '../data/nodes';
 import type { RegionId } from '../data/regions';
@@ -8,7 +8,8 @@ import { FlowField } from '../world/pathing';
 import { lineOfSight } from '../world/sight';
 import type { TileMap } from '../world/tilemap';
 import { TILE, type Mover } from '../world/tiles';
-import { ACTIVE_BEHAVIORS, Creature, type CreatureWorld, type Target } from './creature';
+import { BossFight, type BossEventKind } from './boss';
+import { Creature, type Cloud, type CreatureWorld, type Target } from './creature';
 import { Effects, FX } from './effects';
 import { Human, VS_CREATURE, type GoblinSense, type HumanWorld } from './human';
 import { stepProjectile, type Projectile } from './projectiles';
@@ -17,7 +18,7 @@ import { isSpent, placementKey, shiftIndex } from './world-state';
 
 export type SceneSound =
   | 'hit' | 'kill' | 'ratSqueak' | 'slimeBlorp' | 'spit' | 'miteClick' | 'wallHit' | 'crateBreak'
-  | 'arrow' | 'fireBurst' | 'shieldCharge' | 'alert' | 'whistle' | 'pickup';
+  | 'arrow' | 'fireBurst' | 'shieldCharge' | 'alert' | 'whistle' | 'pickup' | 'clank';
 
 /** How the scene reports back to the game. Everything past the first three is optional (tests skip them). */
 export interface SceneEvents {
@@ -32,9 +33,12 @@ export interface SceneEvents {
   spotted?(h: Human): void;
   alarm?(h: Human): void;
   sound?(id: SceneSound, x: number, y: number): void;
+  /** A shot bounced off an armored front. */
+  deflected?(c: Creature): void;
+  boss?(kind: BossEventKind, x: number, y: number): void;
 }
 
-export type ObjectKind = 'node' | 'station' | 'npc' | 'access' | 'valve' | 'landmark' | 'letter' | 'heap' | 'hole' | 'dormant' | 'post';
+export type ObjectKind = 'node' | 'station' | 'npc' | 'access' | 'valve' | 'vent' | 'landmark' | 'letter' | 'heap' | 'hole' | 'post';
 
 /** Anything placed in the world that isn't alive: drawn depth-sorted, and maybe interactable. */
 export interface WorldObject {
@@ -69,6 +73,8 @@ export interface Pickup {
   /** Seconds before it tries the pack again after finding it full. */
   wait: number;
   dead: boolean;
+  /** Put down on purpose: it stays put until the goblin has walked away from it. */
+  dropped?: boolean;
 }
 
 export interface Noise {
@@ -76,6 +82,11 @@ export interface Noise {
   y: number;
   r: number;
   t: number;
+}
+
+export interface StinkCloud extends Cloud {
+  t: number;
+  life: number;
 }
 
 export interface Bubble {
@@ -87,7 +98,12 @@ export interface Bubble {
   life: number;
 }
 
+/** Stinkbrew: how big the cloud is and how long it hangs about. */
+export const CLOUD_RADIUS = 42;
+export const CLOUD_LIFE = 12;
 const MAGNET_RANGE = 44;
+/** How far the goblin has to walk from something it dropped before it'll pick it up again. */
+const DROP_CLEAR = MAGNET_RANGE + 8;
 const COLLECT_RANGE = 9;
 const NOISE_TIME = 0.6;
 
@@ -103,7 +119,12 @@ export class Scene implements CreatureWorld, HumanWorld {
   readonly projectiles: Projectile[] = [];
   readonly noises: Noise[] = [];
   readonly bubbles: Bubble[] = [];
+  /** Where adventurers have defeated creatures in this scene. */
+  readonly heroKills: { x: number; y: number }[] = [];
+  readonly clouds: StinkCloud[] = [];
   readonly effects = new Effects();
+  /** The boss fight in this region, if it has one. */
+  boss: BossFight | null = null;
   /** The goblin, as creatures see it. */
   private readonly goblinTarget: Target = { x: 0, y: 0, hw: 5, hh: 4, alive: true };
   /** Whoever the creature being updated is after. */
@@ -126,11 +147,13 @@ export class Scene implements CreatureWorld, HumanWorld {
       if (p.def.kind === 'creature') {
         if (isSpent(save, key)) continue;
         const id = p.def.id as CreatureId;
-        if (ACTIVE_BEHAVIORS.has(CREATURES[id].behavior)) {
-          this.creatures.push(new Creature(id, p.col * TILE + TILE / 2, p.row * TILE + TILE / 2, this.rng, key));
+        const boss = (CREATURES[id] as CreatureDef).boss;
+        if (boss && save.flags[boss.flag]) {
+          // Beaten, but its prize was left behind: it's waiting where the boss fell asleep.
+          if (!save.flags[boss.prize.flag]) this.spawnPickup(boss.prize.item as ItemId, 1, p.col * TILE + TILE / 2, p.row * TILE + TILE / 2, 0.2);
           continue;
         }
-        this.addObject('dormant', p.def.id, p.glyph, p.col, p.row, key, p.def.label);
+        this.creatures.push(new Creature(id, p.col * TILE + TILE / 2, p.row * TILE + TILE / 2, this.rng, key));
         continue;
       }
       if (p.def.kind === 'landmark') {
@@ -164,6 +187,8 @@ export class Scene implements CreatureWorld, HumanWorld {
       const o = this.addObject('node', e.node, '', e.col, e.row, e.key, NODES[e.node].name);
       o.spent = isSpent(save, e.key);
     }
+    const boss = this.creatures.find((c) => c.def.boss);
+    if (boss) this.boss = new BossFight(boss, this.objects, (kind, x, y) => this.events.boss?.(kind, x, y));
   }
 
   private addObject(kind: ObjectKind, id: string, glyph: string, col: number, row: number, key: string, label: string): WorldObject {
@@ -195,6 +220,7 @@ export class Scene implements CreatureWorld, HumanWorld {
       c.update(dt, this);
     }
     this.target = this.goblinTarget;
+    this.boss?.update(dt, this);
     for (const h of this.humans) h.update(dt, this);
     this.separate();
     this.updateProjectiles(dt);
@@ -205,6 +231,8 @@ export class Scene implements CreatureWorld, HumanWorld {
 
     for (const n of this.noises) n.t += dt;
     removeWhere(this.noises, (n) => n.t >= NOISE_TIME);
+    for (const c of this.clouds) c.t += dt;
+    removeWhere(this.clouds, (c) => c.t >= c.life);
     for (const b of this.bubbles) {
       b.t += dt;
       if (b.who) {
@@ -250,6 +278,37 @@ export class Scene implements CreatureWorld, HumanWorld {
 
   spawnProjectile(p: Projectile): void {
     this.projectiles.push(p);
+  }
+
+  addCreature(c: Creature): void {
+    this.creatures.push(c);
+    this.effects.burst(c.x, c.y, 10, FX.dust, 50, this.rng, 0.5);
+  }
+
+  /** Take a creature out of the fight without a kill: no loot, no xp. */
+  dismiss(c: Creature): void {
+    removeWhere(this.creatures, (x) => x === c);
+    this.locks.delete(c);
+    this.effects.burst(c.x, c.y, 8, FX.dust, 40, this.rng, 0.4);
+  }
+
+  /** Hurt a creature on the goblin's behalf (steam from a valve it turned). */
+  damageCreature(c: Creature, damage: number, angle: number): void {
+    if (c.dead) return;
+    const fatal = c.takeHit(damage, angle, 60, this);
+    this.killers.set(c, 'player');
+    this.effects.number(c.x, c.y - c.radius - 3, String(damage), fatal ? FX.killNumber : FX.number);
+    this.events.creatureHit(c, damage, fatal);
+  }
+
+  cloudAt(x: number, y: number): Cloud | null {
+    for (const c of this.clouds) if (Math.hypot(x - c.x, y - c.y) < c.r) return c;
+    return null;
+  }
+
+  /** A Stinkbrew bottle breaks here. */
+  addCloud(x: number, y: number): void {
+    this.clouds.push({ x, y, r: CLOUD_RADIUS, t: 0, life: CLOUD_LIFE });
   }
 
   route(fromX: number, fromY: number, toX: number, toY: number, mover: Mover = 'creature'): { x: number; y: number } | null {
@@ -359,11 +418,17 @@ export class Scene implements CreatureWorld, HumanWorld {
     this.pickups.push({ item, qty, x, y, z: 4, vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.6, vz: 70 + this.rng() * 30, t: 0, wait: 0, dead: false });
   }
 
+  /** Something lying still on the floor: left from an earlier visit, or dropped on purpose. */
+  placePickup(item: ItemId, qty: number, x: number, y: number, dropped = false): void {
+    this.pickups.push({ item, qty, x, y, z: 0, vx: 0, vy: 0, vz: 0, t: 1, wait: 0, dead: false, dropped });
+  }
+
   private updatePickups(dt: number): void {
     const g = this.goblin;
     for (const p of this.pickups) {
       p.t += dt;
       p.wait = Math.max(0, p.wait - dt);
+      if (p.dropped && Math.hypot(g.x - p.x, g.y - p.y) > DROP_CLEAR) p.dropped = false;
       if (p.z > 0 || p.vz > 0) {
         p.vz -= 260 * dt;
         p.z += p.vz * dt;
@@ -373,7 +438,7 @@ export class Scene implements CreatureWorld, HumanWorld {
         }
       }
       const d = Math.hypot(g.x - p.x, g.y - p.y);
-      if (g.alive && p.t > 0.45 && p.wait === 0 && d < MAGNET_RANGE) {
+      if (g.alive && p.t > 0.45 && p.wait === 0 && !p.dropped && d < MAGNET_RANGE) {
         const pull = 260 * (1 - d / MAGNET_RANGE) + 60;
         p.vx += ((g.x - p.x) / (d || 1)) * pull * dt * 6;
         p.vy += ((g.y - p.y) / (d || 1)) * pull * dt * 6;
@@ -385,7 +450,7 @@ export class Scene implements CreatureWorld, HumanWorld {
       moveBody(body, p.vx * dt, p.vy * dt, this.map, 'goblin');
       p.x = body.x;
       p.y = body.y;
-      if (g.alive && p.t > 0.45 && p.wait === 0 && d < COLLECT_RANGE && this.events.pickup) {
+      if (g.alive && p.t > 0.45 && p.wait === 0 && !p.dropped && d < COLLECT_RANGE && this.events.pickup) {
         const got = this.events.pickup(p.item, p.qty);
         p.qty -= got;
         if (p.qty <= 0) p.dead = true;
@@ -407,7 +472,8 @@ export class Scene implements CreatureWorld, HumanWorld {
       if (p.owner === 'player') {
         const victim = this.creatures.find((c) => !c.dead && Math.hypot(c.x - p.x, c.y - p.y) <= c.radius + p.radius);
         if (victim) {
-          this.hitCreature(victim, p);
+          if (victim.deflects(Math.atan2(-p.vy, -p.vx))) this.deflect(victim, p);
+          else this.hitCreature(victim, p);
           p.dead = true;
           continue;
         }
@@ -461,6 +527,15 @@ export class Scene implements CreatureWorld, HumanWorld {
     this.events.creatureHit(c, p.damage, fatal);
   }
 
+  /** A shot bounces off armor: sparks, a clank, no damage. */
+  private deflect(c: Creature, p: Projectile): void {
+    const back = Math.atan2(-p.vy, -p.vx);
+    this.effects.spray(p.x, p.y, back, 1.4, 6, FX.spark, 90, this.rng, 0.25);
+    this.effects.spray(p.x, p.y, back, 0.8, 2, '#ffffff', 60, this.rng, 0.15);
+    this.events.sound?.('clank', p.x, p.y);
+    this.events.deflected?.(c);
+  }
+
   private impact(p: Projectile, wall: boolean): void {
     const gooey = p.kind === 'gel' || p.kind === 'slimeShot';
     const color = gooey ? FX.gel : wall ? FX.dust : FX.spark;
@@ -476,6 +551,7 @@ export class Scene implements CreatureWorld, HumanWorld {
     for (const c of dead) {
       this.effects.burst(c.x, c.y, c.def.behavior === 'slime' ? 14 : 9, c.def.color, 60, this.rng, 0.45);
       this.locks.delete(c);
+      if (this.killers.get(c) === 'hero') this.heroKills.push({ x: c.x, y: c.y });
       this.events.creatureKilled(c, this.killers.get(c) !== 'hero');
       this.killers.delete(c);
       const split = c.def.splitsInto;

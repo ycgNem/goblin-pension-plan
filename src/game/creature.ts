@@ -1,15 +1,12 @@
 import { approach, clamp } from '../core/math';
 import { MAX_ATTACKERS } from '../data/combat';
-import { CREATURES, type CreatureBehavior, type CreatureDef, type CreatureId } from '../data/enemies';
+import { CREATURES, type CreatureDef, type CreatureId } from '../data/enemies';
 import { moveBody, type Body } from '../world/collision';
 import { lineOfSight } from '../world/sight';
 import type { TileMap } from '../world/tilemap';
 import type { Projectile } from './projectiles';
 
-/** Behaviors built so far. Beetles and the Pump Matron arrive in M6; until then their spawns stay dormant. */
-export const ACTIVE_BEHAVIORS: ReadonlySet<CreatureBehavior> = new Set<CreatureBehavior>(['rat', 'slime', 'slimelet', 'mite']);
-
-export type CreatureState = 'idle' | 'approach' | 'windup' | 'attack' | 'recover' | 'return';
+export type CreatureState = 'idle' | 'approach' | 'windup' | 'attack' | 'recover' | 'return' | 'stunned';
 
 /** Whoever creatures are after. For now that's always the goblin. */
 export interface Target {
@@ -18,6 +15,13 @@ export interface Target {
   hw: number;
   hh: number;
   alive: boolean;
+}
+
+/** A Stinkbrew cloud. Creatures won't go in, and won't follow you in. */
+export interface Cloud {
+  x: number;
+  y: number;
+  r: number;
 }
 
 /** What a creature can sense and affect. */
@@ -30,6 +34,8 @@ export interface CreatureWorld {
   spawnProjectile(p: Projectile): void;
   /** Unit direction along a walkable route from one point toward another, or null if there's none. */
   route(fromX: number, fromY: number, toX: number, toY: number): { x: number; y: number } | null;
+  /** The stink cloud covering a point, if any. */
+  cloudAt?(x: number, y: number): Cloud | null;
   rng(): number;
 }
 
@@ -49,11 +55,31 @@ const STAGGER = 0.15;
 const WALL_RECOVER = 1.5;
 /** A creature that can't find its way home within this long settles where it is. */
 const RETURN_GIVE_UP = 6;
+/** Armored fronts cover this many radians either side of where the creature faces (120 degrees in all). */
+const ARMOR_HALF_ARC = Math.PI / 3;
+/** A slow turner only starts an attack when it's facing within this angle of its target. */
+const TURN_AIM = 0.3;
+/** Coming out of a stun, this much recovery is left before it moves again. */
+const STUN_RECOVER = 0.45;
 
 export function countAttackers(creatures: readonly Creature[]): number {
   let n = 0;
   for (const c of creatures) if (!c.dead && c.attacking) n++;
   return n;
+}
+
+/** Signed smallest difference between two angles, in -PI..PI. */
+export function angleDiff(a: number, b: number): number {
+  let d = (a - b) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+/** Turn `from` toward `to` by at most `step` radians. */
+function turnToward(from: number, to: number, step: number): number {
+  const d = angleDiff(to, from);
+  return Math.abs(d) <= step ? to : from + Math.sign(d) * step;
 }
 
 /**
@@ -82,6 +108,13 @@ export class Creature implements Body {
   slowT = 0;
   slowFactor = 1;
   dead = false;
+  /** A boss waiting for the fight to start. It doesn't move or notice anything. */
+  asleep = false;
+  /** Multiplies how fast a slow turner turns (a boss turns faster in its second phase). */
+  turnBoost = 1;
+  /** Shell clamped shut all the way round: every shot bounces off until something flips it over. */
+  sealed = false;
+  private stunTime = 0;
   private homeX: number;
   private homeY: number;
   private hasHit = false;
@@ -112,18 +145,30 @@ export class Creature implements Body {
     this.homeY = this.lastSeenY = this.wanderY = y;
     this.flank = (rng() - 0.5) * 1.4;
     this.orbit = rng() < 0.5 ? -1 : 1;
+    // Slow turners start out facing somewhere, so which way they face is worth reading.
+    if (this.def.turnRate) this.face = this.aim = this.flank * 4;
   }
 
   get radius(): number {
     return this.def.radius;
   }
 
+  /** Radians per second, for slow turners. */
+  private get turnRate(): number {
+    return (this.def.turnRate ?? 1) * this.turnBoost;
+  }
+
   get attacking(): boolean {
     return this.state === 'windup' || this.state === 'attack';
   }
 
+  get home(): { x: number; y: number } {
+    return { x: this.homeX, y: this.homeY };
+  }
+
   update(dt: number, w: CreatureWorld): void {
     this.age += dt;
+    if (this.asleep) return;
     this.stateT += dt;
     this.flash = Math.max(0, this.flash - dt);
     this.slowT = Math.max(0, this.slowT - dt);
@@ -150,6 +195,14 @@ export class Creature implements Body {
       this.unseen += dt;
     }
 
+    // Stink clouds: anything not mid-attack backs out of one.
+    const cloud = w.cloudAt?.(this.x, this.y) ?? null;
+    if (cloud && !this.attacking && this.state !== 'stunned') {
+      this.steer(this.x - cloud.x, this.y - cloud.y, this.def.speed, dt, w.map);
+      if (this.state === 'idle') this.enter('return');
+      return;
+    }
+
     switch (this.state) {
       case 'idle':
         if (sees) this.alert(w);
@@ -160,11 +213,16 @@ export class Creature implements Body {
         else this.goHome(dt, w);
         break;
       case 'approach':
-        this.chase(dt, w, dist, sees);
+        if (this.def.turnRate) this.chaseTurning(dt, w, dist, sees);
+        else this.chase(dt, w, dist, sees);
         break;
       case 'windup':
         this.coast(dt, w.map);
-        if (t.alive && this.stateT < this.def.windup - AIM_LOCK) this.aim = Math.atan2(dy, dx);
+        if (t.alive && this.stateT < this.def.windup - AIM_LOCK) {
+          const toward = Math.atan2(dy, dx);
+          // Slow turners keep turning through the windup; everything else tracks you exactly.
+          this.aim = this.def.turnRate ? turnToward(this.aim, toward, this.turnRate * 0.6 * dt) : toward;
+        }
         this.face = this.aim;
         if (this.stateT >= this.def.windup) this.release(w);
         break;
@@ -175,12 +233,27 @@ export class Creature implements Body {
         this.coast(dt, w.map);
         if (this.stateT >= this.def.recover * (this.hitWall ? WALL_RECOVER : 1)) this.enter('approach');
         break;
+      case 'stunned':
+        this.coast(dt, w.map);
+        if (this.stateT >= this.stunTime) {
+          this.hitWall = false;
+          this.state = 'recover';
+          this.stateT = this.def.recover - STUN_RECOVER;
+        }
+        break;
     }
+  }
+
+  /** Would a shot coming from this direction (radians, from the creature toward the shooter) bounce off the armor? */
+  deflects(fromAngle: number): boolean {
+    if (!this.def.armoredFront || this.state === 'stunned') return false;
+    return this.sealed || Math.abs(angleDiff(fromAngle, this.face)) < ARMOR_HALF_ARC;
   }
 
   /** Apply a hit. Returns true if it was fatal. */
   takeHit(damage: number, angle: number, knockback: number, w: CreatureWorld, slow?: { factor: number; time: number }): boolean {
     if (this.dead) return false;
+    if (this.state === 'stunned' && this.def.boss) damage *= this.def.boss.bellyDamage;
     this.hp -= damage;
     this.flash = 0.1;
     const k = knockback * this.def.knockbackTaken;
@@ -201,6 +274,15 @@ export class Creature implements Body {
       this.alert(w);
     }
     return false;
+  }
+
+  /** Knocked flat for a while: no attacks, and armor doesn't help. */
+  stun(seconds: number): void {
+    if (this.dead) return;
+    this.stunTime = seconds;
+    this.vx = 0;
+    this.vy = 0;
+    this.enter('stunned');
   }
 
   /** Spot the goblin. Pack members nearby join in. */
@@ -233,15 +315,34 @@ export class Creature implements Body {
     this.stateT = 0;
   }
 
+  /** Should it stop chasing and go home? */
+  private givesUp(w: CreatureWorld): boolean {
+    const fromHome = Math.hypot(this.x - this.homeX, this.y - this.homeY);
+    return !w.target.alive || this.unseen > GIVE_UP_AFTER || (fromHome > LEASH && !this.def.boss);
+  }
+
+  /** Circle a stink cloud the goblin is hiding in, without going in. */
+  private circleCloud(cloud: Cloud, speed: number, dt: number, map: TileMap): void {
+    const out = Math.atan2(this.y - cloud.y, this.x - cloud.x);
+    const d = Math.hypot(this.x - cloud.x, this.y - cloud.y);
+    const radial = clamp((cloud.r + 14 - d) / 10, -1, 1);
+    const a = out + this.orbit * Math.PI * 0.5 * (1 - Math.abs(radial));
+    this.steer(Math.cos(a) + Math.cos(out) * radial, Math.sin(a) + Math.sin(out) * radial, speed * 0.5, dt, map);
+  }
+
   private chase(dt: number, w: CreatureWorld, dist: number, sees: boolean): void {
     const t = w.target;
-    const fromHome = Math.hypot(this.x - this.homeX, this.y - this.homeY);
-    if (!t.alive || this.unseen > GIVE_UP_AFTER || fromHome > LEASH) {
+    if (this.givesUp(w)) {
       this.enter('return');
       return;
     }
 
     const speed = this.def.speed * this.speedFactor();
+    const cloud = w.cloudAt?.(t.x, t.y) ?? null;
+    if (cloud) {
+      this.circleCloud(cloud, speed, dt, w.map);
+      return;
+    }
     if (!sees) {
       // Head for where the goblin was last seen, around whatever is in the way.
       this.travel(this.lastSeenX, this.lastSeenY, speed, dt, w);
@@ -269,6 +370,45 @@ export class Creature implements Body {
     // Close in, curving out to the flank while still far away.
     const flank = this.flank * clamp((dist - this.def.attackRange) / 80, 0, 1);
     this.steerAngle(toward + flank, speed, dt, w.map);
+  }
+
+  /**
+   * Slow turners (beetles, the Matron) walk the way they face and turn toward you a little at a time.
+   * They only attack straight ahead, so getting round behind one is the whole trick.
+   */
+  private chaseTurning(dt: number, w: CreatureWorld, dist: number, sees: boolean): void {
+    const t = w.target;
+    if (this.givesUp(w)) {
+      this.enter('return');
+      return;
+    }
+    const cloud = w.cloudAt?.(t.x, t.y) ?? null;
+    if (cloud) {
+      this.circleCloud(cloud, this.def.speed * this.speedFactor(), dt, w.map);
+      return;
+    }
+    let goal: number;
+    if (sees) goal = Math.atan2(t.y - this.y, t.x - this.x);
+    else {
+      const dir = w.route(this.x, this.y, this.lastSeenX, this.lastSeenY);
+      goal = dir ? Math.atan2(dir.y, dir.x) : Math.atan2(this.lastSeenY - this.y, this.lastSeenX - this.x);
+    }
+    this.face = turnToward(this.face, goal, this.turnRate * dt);
+    const off = Math.abs(angleDiff(goal, this.face));
+    if (sees && dist <= this.def.attackRange && off < TURN_AIM && countAttackers(w.creatures) < MAX_ATTACKERS) {
+      this.aim = this.face;
+      this.enter('windup');
+      this.coast(dt, w.map);
+      return;
+    }
+    // Shuffle forward, slower while turning hard, and stop short of bumping into you.
+    const close = sees && dist < this.def.radius + 14;
+    const speed = close ? 0 : this.def.speed * this.speedFactor() * clamp(Math.cos(off), 0.2, 1);
+    const tx = Math.cos(this.face) * speed;
+    const ty = Math.sin(this.face) * speed;
+    this.vx = approach(this.vx, tx, ACCEL * dt);
+    this.vy = approach(this.vy, ty, ACCEL * dt);
+    this.move(dt, w.map);
   }
 
   private release(w: CreatureWorld): void {
@@ -318,6 +458,11 @@ export class Creature implements Body {
       return;
     }
     if (this.stateT >= lunge.time) this.endLunge();
+  }
+
+  /** Did the last lunge end in a wall? Big creatures are stunned by it for a moment. */
+  get crashed(): boolean {
+    return this.state === 'recover' && this.hitWall;
   }
 
   private endLunge(): void {
@@ -379,7 +524,10 @@ export class Creature implements Body {
     this.vx = approach(this.vx, tx, ACCEL * dt);
     this.vy = approach(this.vy, ty, ACCEL * dt);
     this.move(dt, map);
-    if (Math.hypot(this.vx, this.vy) > 5) this.face = Math.atan2(this.vy, this.vx);
+    if (Math.hypot(this.vx, this.vy) > 5) {
+      const heading = Math.atan2(this.vy, this.vx);
+      this.face = this.def.turnRate ? turnToward(this.face, heading, this.turnRate * 2 * dt) : heading;
+    }
   }
 
   private steerAngle(angle: number, speed: number, dt: number, map: TileMap): void {

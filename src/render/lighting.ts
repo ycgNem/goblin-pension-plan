@@ -48,8 +48,6 @@ export class Lighting {
   private readonly sprites = new Map<string, HTMLCanvasElement>();
 
   constructor() {
-    this.canvas.width = VIEW_W;
-    this.canvas.height = VIEW_H;
     this.ctx = this.canvas.getContext('2d')!;
   }
 
@@ -85,6 +83,11 @@ export class Lighting {
 
   /** Multiply the light map over everything drawn so far. `base` is the region's darkness. */
   render(target: CanvasRenderingContext2D, view: View, base: string, lights: readonly Light[], time: number): void {
+    // The view changes size with the window.
+    if (this.canvas.width !== VIEW_W || this.canvas.height !== VIEW_H) {
+      this.canvas.width = VIEW_W;
+      this.canvas.height = VIEW_H;
+    }
     const l = this.ctx;
     l.globalCompositeOperation = 'source-over';
     l.globalAlpha = 1;
@@ -129,7 +132,7 @@ let vignette: HTMLCanvasElement | null = null;
 
 /** A permanent soft darkening at the screen edges, for a framed, cinematic look. */
 export function drawFrameVignette(ctx: CanvasRenderingContext2D): void {
-  if (!vignette) {
+  if (!vignette || vignette.width !== VIEW_W || vignette.height !== VIEW_H) {
     vignette = document.createElement('canvas');
     vignette.width = VIEW_W;
     vignette.height = VIEW_H;

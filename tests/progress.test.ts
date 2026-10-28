@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHAPTER_1 } from '../src/data/charter';
-import { charterProgress, nextCharterStep } from '../src/game/progress';
+import { charterDone, charterProgress, nextCharterStep } from '../src/game/progress';
 import { newSave } from '../src/game/save';
 
 describe('charter progress', () => {
@@ -25,5 +25,8 @@ describe('charter progress', () => {
     save.upgrades.push('repairWorkbench');
     expect(nextCharterStep(save)?.title).toBe('Repair the home');
     expect(charterProgress(save).done).toBe(1);
+    // So which step just finished is read per step, not from the count.
+    const done = charterDone(save);
+    expect(CHAPTER_1.steps.filter((_, i) => done[i]).map((s) => s.title)).toEqual(['Construct a scrap workbench']);
   });
 });

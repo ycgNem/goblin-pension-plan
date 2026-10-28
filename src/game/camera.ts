@@ -2,6 +2,12 @@ import { clamp, damp } from '../core/math';
 import { VIEW_H, VIEW_W } from '../core/screen';
 import type { TileMap } from '../world/tilemap';
 
+/**
+ * The camera may look this far above the top of the map, so the top rows can sit below the
+ * HUD (hearts and the objective) instead of under it.
+ */
+export const HUD_TOP = 36;
+
 /** Top-left corner of the view in world pixels. Smoothly follows a target and clamps to the map. */
 export class Camera {
   x = 0;
@@ -25,8 +31,10 @@ export class Camera {
   }
 
   private targetY(ty: number, map: TileMap): number {
-    if (map.heightPx <= VIEW_H) return (map.heightPx - VIEW_H) / 2;
-    return clamp(ty - VIEW_H / 2, 0, map.heightPx - VIEW_H);
+    const free = VIEW_H - map.heightPx;
+    // Short maps are centered, but never tucked up under the HUD if there's room below it.
+    if (free >= 0) return -Math.min(free, Math.max(free / 2, HUD_TOP));
+    return clamp(ty - VIEW_H / 2, -HUD_TOP, map.heightPx - VIEW_H);
   }
 
   /** Rounded offset for drawing, so tiles stay on whole pixels. */

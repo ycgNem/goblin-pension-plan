@@ -82,6 +82,10 @@ export const ITEM_ICONS: Record<ItemId, SpriteDef> = {
     '..w..w....', '...oooo...', '...okko...', '...oaao...', '..oaaaao..',
     '.oMmmmMMo.', '.omWmmmMo.', '.ommmmmMo.', '..oMMMMo..', '...oooo...',
   ]),
+  bandolier: icon({ B: '#6a4a2c', b: '#9a7048', G: '#3a7a5a', g: '#5aa07a', W: '#c8f0e0' }, [
+    'oo........', 'obo.......', '.obo.oo...', '..obogWo..', '...obggo..',
+    '..oobboo..', '.ogWobbo..', '.oggo.obo.', '..oo...obo', '........oo',
+  ]),
   modNailSpread: icon({ i: '#d8d8d8', B: '#9a7a50', b: '#6a4a2c' }, [
     '.i...i...i', '.i...i...i', '..i..i..i.', '..i..i..i.', '...i.i.i..',
     '.ooooooooo', '.oBBbBBbBo', '.obbbbbbbo', '.ooooooooo', '..........',
@@ -97,6 +101,22 @@ export const ITEM_ICONS: Record<ItemId, SpriteDef> = {
   flywheelCoil: icon({ C: '#f0a060', c: '#c87533', D: '#8a4a20' }, [
     '..oooooo..', '.oCCCCcco.', 'oCCo..occo', 'oCo.cc.oco', 'oC.cDDc.co',
     'oC.cDDc.Do', 'oCo.cc.oDo', 'oCco..oDDo', '.occcDDDo.', '..oooooo..',
+  ]),
+};
+
+/** Decorations on Dorrit's shelf, keyed by upgrade id. */
+export const DECOR_ICONS: Partial<Record<string, SpriteDef>> = {
+  wallClock: icon({ W: '#f0e8d0', w: '#c8bca0', B: '#9a7048', b: '#6a4a2c', h: '#2a2018' }, [
+    '..oooooo..', '.oBBBBBBo.', 'oBowwwwoBo', 'oBwWhWWwbo', 'oBwWhWWwbo',
+    'oBwWhhhwbo', 'oBwWWWWwbo', 'oBowwwwobo', '.obbbbbbo.', '..oooooo..',
+  ]),
+  waxFern: icon({ G: '#8ad070', g: '#5a9a48', D: '#356a30', P: '#a8643a', p: '#7a4428' }, [
+    '.o..o..o..', 'oGo.oGoGo.', '.oGoGgGo..', 'oGgoGgoGo.', '.ogGgGgGo.',
+    '..oDgDgo..', '..oPPPPo..', '..oPppPo..', '..oppppo..', '...oooo...',
+  ]),
+  gildedPlaque: icon({ Y: '#f0d070', y: '#c8a040', D: '#8a6a20', B: '#4a2c18' }, [
+    '..........', 'oooooooooo', 'oYYYYYYyyo', 'oYBBYBByDo', 'oYYYYYYyDo',
+    'oyBByBBBDo', 'oyyyyyyDDo', 'oooooooooo', '..........', '..........',
   ]),
 };
 

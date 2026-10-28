@@ -2,19 +2,21 @@ import { audio } from '../audio/audio';
 import type { SfxId } from '../audio/sfx';
 import type { TrackId } from '../audio/music';
 import type { Input } from '../core/input';
-import { clamp, lerp } from '../core/math';
+import { actionLabel } from '../core/keys';
+import { clamp, damp, lerp } from '../core/math';
 import { VIEW_H, VIEW_W, type Screen } from '../core/screen';
 import { settings } from '../core/settings';
-import { CHAPTER_1 } from '../data/charter';
+import { CHAPTER_1, ORDERS, RETIREMENT_LEDGER } from '../data/charter';
 import { CHARGED_SHOT, FEEL, LAUNCHER_MODE_IDS, LAUNCHER_MODES, MOD_MODES, type LauncherMode, type LauncherModeId } from '../data/combat';
-import { SHIFT_SECONDS } from '../data/economy';
+import { OCCUPANCY_STEP, SHIFT_SECONDS } from '../data/economy';
+import { BOSS_PRIZES } from '../data/enemies';
 import { EVENTS, eventForShift, type EventId } from '../data/events';
 import { ITEMS, ITEM_IDS, type ItemBag, type ItemDef, type ItemId } from '../data/items';
 import { BONUS_ITEM_LEVEL, NODES, rollYield, type NodeDef, type NodeId } from '../data/nodes';
 import { RECIPES, type RecipeDef, type RecipeId, type StationId } from '../data/recipes';
 import { HOME_REGION, REGIONS, REGION_IDS, type RegionId } from '../data/regions';
 import { levelForXp, SKILLS, type SkillId } from '../data/skills';
-import { DORRIT_FIRST, DORRIT_LATER, FIRST_VISIT, GRUBB_FIRST, grubbChat, type DialogueEffect, type HintId, type Script } from '../data/story';
+import { BOSS_LINES, DORRIT_FIRST, DORRIT_LATER, DORRIT_OPEN, FIRST_VISIT, GRUBB_FIRST, grubbChat, type DialogueEffect, type HintId, type Script } from '../data/story';
 import { UPGRADES, type UpgradeId } from '../data/upgrades';
 import { Ambience, type AmbientSound } from '../render/ambience';
 import { drawProp } from '../render/art/props';
@@ -22,33 +24,36 @@ import { drawWorld, drawWorldOverlay, type WorldDrawState } from '../render/enti
 import { drawEdgeGlow, drawFrameVignette, Lighting, type Light, type View } from '../render/lighting';
 import { PAL } from '../render/palette';
 import { WorldRenderer } from '../render/world-renderer';
-import { BoardOverlay, LetterOverlay, ReceiptOverlay, SummaryOverlay, type TripReport } from '../ui/cards';
+import { BoardOverlay, LetterOverlay, ReceiptOverlay, StampOverlay, SummaryOverlay, type TripReport } from '../ui/cards';
 import { DialogueOverlay } from '../ui/dialogue';
 import { Hud } from '../ui/hud';
 import { MenuOverlay, type MenuPage } from '../ui/menu';
 import type { Overlay } from '../ui/overlay';
 import { PauseOverlay } from '../ui/pause';
-import { StationOverlay, StorageOverlay } from '../ui/station';
+import { GeneratorOverlay, StationOverlay, StorageOverlay } from '../ui/station';
+import { TradeOverlay } from '../ui/trade';
 import { Toasts } from '../ui/toasts';
 import { lineOfSight } from '../world/sight';
 import { TileMap } from '../world/tilemap';
 import { TILE } from '../world/tiles';
 import { Camera } from './camera';
-import { build, canBuild, coziness, craft, openUpgradesAt, skillLevel } from './crafting';
+import type { BossEventKind } from './boss';
+import { build, canBuild, coziness, craft, feedGenerator, GENERATOR, openUpgradesAt, skillLevel } from './crafting';
 import type { Creature, CreatureState } from './creature';
 import { retrievalReceipt, type Receipt } from './defeat';
-import { currentEvent, LiveEvent, pruneEventNodes, resolveOffscreen, storyGated, STORY_CONTRACT_DELAY } from './director';
+import { currentEvent, LiveEvent, pruneEventNodes, resolveOffscreen, storyGated, STORY_CONTRACT_DELAY, STORY_CONTRACT_NEAR } from './director';
 import { Feel, FX } from './effects';
-import { Banners, drawBubbles, drawButtons, drawControlsStrip, drawDamageNumbers, drawHearts, drawHomeArrow, drawObjective, drawPrompt, drawShiftClock, drawTracked } from './game-hud';
+import { Banners, drawBossBar, drawBubbles, drawButtons, drawControlsStrip, drawDamageNumbers, drawHearts, drawHomeArrow, drawMod, drawObjective, drawPrompt, drawShiftClock, drawThrowable, drawTracked, type PanelRect } from './game-hud';
 import { createHealth, heal, setMax } from './health';
 import type { Human } from './human';
-import { addToPack, haveCount, packCount, pickFood, quickDeposit, removeFromPack, takeDefeatFee, withdraw } from './inventory';
+import { addToPack, addToStorage, canAfford, haveCount, packCount, pay, pickFood, quickDeposit, removeFromPack, takeDefeatFee, withdraw } from './inventory';
 import { Player } from './player';
 import { collect, jobsAt, startJob } from './production';
-import { charterProgress, currentObjective, nextCharterStep } from './progress';
+import { charterDone, charterProgress, currentObjective, nextCharterStep } from './progress';
 import { clearSave, writeSave, type ProductionStation, type SaveData } from './save';
 import { Scene, type SceneEvents, type SceneSound, type WorldObject } from './scene';
 import { playerStats, type PlayerStats } from './stats';
+import { buy, payOccupancy, sellOne, shopName } from './trade';
 import { isSpent, markSpent, pruneSpent, shiftIndex } from './world-state';
 
 const FADE_TIME = 0.22;
@@ -78,7 +83,7 @@ interface Transition {
 }
 
 interface Thrown {
-  kind: 'pebble' | 'bottle';
+  kind: 'pebble' | 'bottle' | 'stinkbrew';
   x0: number;
   y0: number;
   x1: number;
@@ -90,11 +95,17 @@ interface Thrown {
 /** One expedition: from leaving home to getting back. */
 interface Trip {
   from: number;
-  region: RegionId;
+  /** Every region the trip went through, in order. */
+  regions: RegionId[];
   items: ItemBag;
   xp: Partial<Record<SkillId, number>>;
   defeated: number;
+  /** The Charter when the trip began, to see which steps it finished. */
+  charter: boolean[];
 }
+
+/** Hints about what's happening this second. They jump the queue. */
+const URGENT_HINTS: readonly HintId[] = ['fight', 'sneak', 'eat', 'throw', 'armor', 'valve'];
 
 export interface GameHooks {
   quit(): void;
@@ -113,7 +124,7 @@ const STATION_TITLE: Record<string, string> = {
   dryingRack: 'Drying Rack', boneGrinder: 'Bone Grinder', slimeGenerator: 'Slime Generator', lantern: 'Lantern', sign: 'The Sign',
 };
 
-const WINDUP_SOUND: Partial<Record<string, SfxId>> = { rat: 'ratSqueak', slime: 'slimeBlorp', slimelet: 'spit', mite: 'miteClick' };
+const WINDUP_SOUND: Partial<Record<string, SfxId>> = { rat: 'ratSqueak', slime: 'slimeBlorp', slimelet: 'spit', mite: 'miteClick', beetle: 'beetleHiss', matron: 'matronRoar' };
 
 function mixHex(a: string, b: string, t: number): string {
   const pa = parseInt(a.slice(1), 16);
@@ -166,12 +177,20 @@ export class Game {
   private spottedFx = 0;
   private muzzleT = 0;
   private objectiveFlash = 0;
+  /** Where the objective and tracker panels were last frame, and how solid they are: they fade when something is behind them. */
+  private hudPanels: PanelRect[] = [];
+  private hudAlpha = 1;
   private lastObjective = '';
   private readonly hintQueue: HintId[] = [];
   private readonly notified = new Set<string>();
   private packFullT = 0;
   private chargeWasReady = false;
   private sconces: { x: number; y: number }[] = [];
+  /** Windows to open once the current conversation is over. */
+  private pendingStamp = false;
+  private pendingTrade = false;
+  /** The boss bar flashes when the boss takes a big hit. */
+  private bossFlash = 0;
   private exitLights: { x: number; y: number }[] = [];
   private homeExit: { x: number; y: number } | null = null;
 
@@ -191,6 +210,8 @@ export class Game {
     },
     alarm: (h) => this.live?.onAlarm(h),
     sound: (id, x, y) => this.play(id, x, y),
+    deflected: (c) => this.queueHint(c.sealed ? 'valve' : 'armor'),
+    boss: (kind, x, y) => this.onBoss(kind, x, y),
   };
 
   constructor(private readonly screen: Screen, private readonly input: Input, save: SaveData, private readonly hooks: GameHooks, opening: boolean) {
@@ -216,6 +237,7 @@ export class Game {
 
   private enterRegion(id: RegionId, arrivalExit: string | null, pos: { x: number; y: number } | null, defeat = false): void {
     const from = this.map ? this.regionId : null;
+    if (from) this.stashFloor();
     if (this.live) {
       this.live.abandon();
       this.live = null;
@@ -225,6 +247,10 @@ export class Game {
     this.map = TileMap.forRegion(id);
     this.rebake();
     this.scene = new Scene(id, this.map, this.save, this.sceneEvents);
+    // Whatever was left lying here earlier this shift is still here.
+    const shift = shiftIndex(this.save.playTime);
+    for (const f of this.save.floor) if (f.region === id && f.shift === shift) this.scene.placePickup(f.item, f.qty, f.x, f.y);
+    this.save.floor = this.save.floor.filter((f) => f.region !== id);
     this.ambience = new Ambience(id, this.map, Math.random, (s, x, y) => this.ambientSound(s, x, y));
     this.creatureStates.clear();
     this.throws = [];
@@ -254,7 +280,9 @@ export class Game {
       this.trip = null;
       if (this.save.pack.some((s) => ITEMS[s.item].category === 'material')) this.queueHint('deposit');
     } else if (from === HOME_REGION || !this.trip) {
-      this.trip = { from: this.save.playTime, region: id, items: {}, xp: {}, defeated: 0 };
+      this.trip = { from: this.save.playTime, regions: [id], items: {}, xp: {}, defeated: 0, charter: charterDone(this.save) };
+    } else if (!this.trip.regions.includes(id)) {
+      this.trip.regions.push(id);
     }
     audio.music(region.music);
     this.save.region = id;
@@ -274,7 +302,7 @@ export class Game {
   private rebake(): void {
     const gateFlag = REGIONS[this.regionId].gateFlag;
     this.map.gateOpen = (gateFlag ? this.save.flags[gateFlag] === true : false) || this.eventGate;
-    this.renderer.bake(this.map, { region: this.regionId, holesPatched: this.save.upgrades.includes('patchHoles') });
+    this.renderer.bake(this.map, { region: this.regionId, holesPatched: this.save.upgrades.includes('patchHoles'), generatorPipes: this.save.upgrades.includes('slimeGenerator') });
   }
 
   /** Lamps on the Cooperative walls, glows at exits, and the way home. */
@@ -326,9 +354,11 @@ export class Game {
     this.toasts.update(dt);
     this.banners.update(dt);
     this.objectiveFlash = Math.max(0, this.objectiveFlash - dt);
+    this.hudAlpha += ((this.hudCovering() ? 0.25 : 1) - this.hudAlpha) * damp(10, dt);
     this.spottedFx = Math.max(0, this.spottedFx - dt * 1.2);
     this.muzzleT = Math.max(0, this.muzzleT - dt);
     this.packFullT = Math.max(0, this.packFullT - dt);
+    this.bossFlash = Math.max(0, this.bossFlash - dt);
     this.updateHints();
     this.updateMusic(dt);
 
@@ -339,6 +369,13 @@ export class Game {
       return;
     }
 
+    if (this.overlays.length === 0 && this.pendingStamp) {
+      this.pendingStamp = false;
+      this.openStamp();
+    } else if (this.overlays.length === 0 && this.pendingTrade) {
+      this.pendingTrade = false;
+      this.openTrade();
+    }
     const top = this.overlays[this.overlays.length - 1];
     if (top) {
       top.update(dt, this.input);
@@ -394,10 +431,11 @@ export class Game {
   private updateAsleep(dt: number): void {
     this.wakeT += dt;
     if (Math.random() < dt * 1.2) this.ambience.emit('mote', this.player.x + 6, this.player.y - 10);
-    const pressed = this.input.wasPressed('KeyE') || this.input.wasPressed('Space') || this.input.wasMousePressed(0) || this.input.moveAxis().x !== 0 || this.input.moveAxis().y !== 0;
+    const pressed = this.input.hit('interact') || this.input.hit('roll') || this.input.wasMousePressed(0) || this.input.moveAxis().x !== 0 || this.input.moveAxis().y !== 0;
     if (this.wakeT < WAKE_TIME && !(this.wakeT > 1.2 && pressed)) return;
     this.mode = 'play';
     this.save.flags.wokeUp = true;
+    this.queueHint('move');
     const bed = this.scene.objects.find((o) => o.id === 'bed');
     if (bed) this.player.place(bed.x + 18, bed.y + 8);
     this.feel.kick(1);
@@ -411,15 +449,17 @@ export class Game {
 
   private updatePlay(dt: number): void {
     const input = this.input;
-    if (input.wasPressed('Escape')) {
+    if (input.hit('pause') || input.wasPressed('KeyP')) {
       this.openPause();
       return;
     }
-    if (input.wasPressed('Tab')) {
+    if (input.hit('pack')) {
+      this.hintDone('pack');
       this.openMenu('pack');
       return;
     }
-    if (input.wasPressed('KeyM')) {
+    if (input.hit('map')) {
+      this.hintDone('map');
       this.openMenu('map');
       return;
     }
@@ -429,6 +469,7 @@ export class Game {
     const aimY = input.mouse.y + this.camera.y;
     const mode = this.launcherMode();
     const actions = p.update(dt, input, this.map, aimX, aimY, this.stats, mode.interval);
+    if (Math.hypot(p.vx, p.vy) > 40 && this.banners.hint?.id !== 'move') this.hintDone('move');
     if (actions.fire) this.fire(mode, false);
     if (actions.charged) {
       this.fire(CHARGED_SHOT.mode, true);
@@ -449,8 +490,8 @@ export class Game {
       this.scene.noise(p.x, p.y, 26);
       this.runNoiseT = 0.45;
     }
-    if (input.wasPressed('KeyQ')) this.eat();
-    if (input.wasPressed('KeyF')) this.throwSomething(aimX, aimY);
+    if (input.hit('eat')) this.eat();
+    if (input.hit('throw')) this.throwSomething(aimX, aimY);
     if (p.health.hp <= p.health.max / 2 && pickFood(this.save, 1)) this.queueHint('eat');
 
     this.updateInteraction(dt);
@@ -496,6 +537,8 @@ export class Game {
         return true;
       case 'post':
         return this.regionId === 'cistern' && !this.save.flags.sluiceOpen;
+      case 'valve':
+        return this.scene.boss?.active === true;
       default:
         return false;
     }
@@ -508,7 +551,7 @@ export class Game {
     for (const o of this.scene.objects) {
       if (!this.isInteractable(o)) continue;
       const oy = o.kind === 'hole' ? (o.row + 1) * TILE + 8 : o.kind === 'post' ? o.y : o.y - 5;
-      const range = o.kind === 'npc' ? 30 : o.kind === 'station' ? 24 : o.kind === 'hole' ? 18 : INTERACT_RANGE;
+      const range = o.kind === 'npc' ? 30 : o.kind === 'station' || o.kind === 'valve' ? 24 : o.kind === 'hole' ? 18 : INTERACT_RANGE;
       const d = Math.hypot(o.x - p.x, oy - p.y);
       if (d < range && d - range < bestScore) {
         best = o;
@@ -526,6 +569,7 @@ export class Game {
       }
       case 'station':
         if (o.id === 'storage') return { verb: 'Open', label: 'Storage Crate' };
+        if (o.id === 'slimeGenerator' && this.save.upgrades.includes('slimeGenerator')) return { verb: 'Feed', label: `the Generator (${this.save.charge}/${GENERATOR.capacity})` };
         return { verb: STATION_OF[o.id] && (o.id === 'pot' || this.save.upgrades.includes(o.id === 'workbench' ? 'repairWorkbench' : (o.id as UpgradeId))) ? 'Use' : 'Build at', label: STATION_TITLE[o.id] ?? o.label };
       case 'hole':
         return { verb: 'Patch', label: 'the holes' };
@@ -535,6 +579,8 @@ export class Game {
         return { verb: 'Read', label: "Grubb's letter" };
       case 'post':
         return { verb: 'Turn', label: 'the sluice valve' };
+      case 'valve':
+        return { verb: 'Turn', label: 'the steam valve' };
       default:
         return { verb: 'Use', label: o.label };
     }
@@ -546,6 +592,9 @@ export class Game {
       if (req && skillLevel(this.save, req.skill) < req.level) return `Needs ${SKILLS[req.skill].name} ${req.level}`;
     }
     if (o.kind === 'post' && skillLevel(this.save, 'tinkering') < 3) return 'Needs Tinkering 3 to turn the valve';
+    if (o.kind === 'valve' && this.scene.boss && !this.scene.boss.canTurn(o)) {
+      return this.scene.boss.phase === 1 ? 'No pressure yet' : `Building pressure... ${Math.ceil(this.scene.boss.cooldownLeft(o))}s`;
+    }
     return null;
   }
 
@@ -562,7 +611,7 @@ export class Game {
     if (focus.kind === 'node' && !lock) {
       const def: NodeDef = NODES[focus.id as NodeId];
       if (def.time > 0) {
-        if (this.input.isDown('KeyE')) {
+        if (this.input.held('interact')) {
           const before = this.holdT;
           this.holdOn = focus;
           this.holdT += dt;
@@ -580,7 +629,7 @@ export class Game {
         return;
       }
     }
-    if (!this.input.wasPressed('KeyE')) return;
+    if (!this.input.hit('interact')) return;
     if (lock) {
       audio.sfx('uiDenied');
       this.toasts.push(lock, PAL.danger);
@@ -609,6 +658,12 @@ export class Game {
       case 'post':
         this.turnValve();
         return;
+      case 'valve':
+        if (this.scene.boss?.turn(o)) {
+          this.feel.kick(2.4);
+          audio.sfx('valveTurn');
+        }
+        return;
       default:
         return;
     }
@@ -623,6 +678,7 @@ export class Game {
     o.spent = true;
     o.shake = 0.35;
     markSpent(this.save, o.key);
+    this.hintDone(def.verb === 'Smash' ? 'smash' : 'search');
     for (const l of loot) {
       const pieces = Math.min(l.qty, 3);
       for (let i = 0; i < pieces; i++) this.scene.spawnPickup(l.item, i === pieces - 1 ? l.qty - (pieces - 1) : 1, o.x, o.y - 5);
@@ -655,9 +711,31 @@ export class Game {
       }));
       return;
     }
+    if (o.id === 'slimeGenerator' && this.save.upgrades.includes('slimeGenerator')) {
+      this.openOverlay(new GeneratorOverlay(this.save, {
+        feed: (gels) => this.feed(gels, o),
+        sound: (id) => audio.sfx(id),
+      }));
+      return;
+    }
     const station = STATION_OF[o.id] ?? null;
     if (station && PRODUCTION.includes(station as ProductionStation)) this.collectFrom(station as ProductionStation);
     this.openOverlay(new StationOverlay(this.save, STATION_TITLE[o.id] ?? o.label, station, o.glyph, this.stationHooks()));
+  }
+
+  /** Pour gel into the generator. The first charge switches it on: a Charter step. */
+  private feed(gels: number, o: WorldObject): void {
+    const before = charterDone(this.save);
+    const added = feedGenerator(this.save, gels, true);
+    if (added <= 0) {
+      audio.sfx('uiDenied');
+      return;
+    }
+    audio.sfx('generatorHum');
+    this.scene.effects.burst(o.x, o.y - 14, 10, FX.gel, 40, Math.random, 0.5);
+    this.toasts.push(`+${added} charge (${this.save.charge}/${GENERATOR.capacity})`, '#a8f8a0');
+    this.checkCharter(before);
+    this.persist();
   }
 
   private depositAll(): void {
@@ -681,11 +759,16 @@ export class Game {
   private stationHooks(): ConstructorParameters<typeof StationOverlay>[4] {
     return {
       craft: (id: RecipeId) => {
-        const before = charterProgress(this.save).done;
+        const before = charterDone(this.save);
         const res = craft(this.save, id, true);
         if (!res) return;
         audio.sfx('craft');
         this.toasts.item(res.item, res.qty, ITEMS[res.item].name);
+        // A first launcher mod goes straight on: making one and then hunting for it in the pack is no fun.
+        if (MOD_MODES[res.item] && !this.save.equippedMod) {
+          this.save.equippedMod = res.item;
+          this.toasts.push(`Equipped ${ITEMS[res.item].name}. Swap mods in the pack.`, PAL.homeGlow);
+        }
         this.gainXp(res.xp.skill, res.xp.amount);
         this.checkCharter(before);
         this.persist();
@@ -694,7 +777,10 @@ export class Game {
         if (!startJob(this.save, station, id, true)) return;
         const r: RecipeDef = RECIPES[id];
         audio.sfx('plant');
-        this.toasts.push(`${r.name}: ready in ${Math.ceil((r.time ?? 0) / 60)} min of play.`, PAL.homeGlow);
+        // Queued jobs wait their turn, so say when this one will really be done.
+        const left = Math.max(0, (jobsAt(this.save, station).at(-1)?.end ?? this.save.playTime) - this.save.playTime);
+        const when = left < 90 ? `${Math.ceil(left)}s` : `${Math.ceil(left / 60)} min`;
+        this.toasts.push(`${r.name}: ready in ${when} of play.`, PAL.homeGlow);
         this.persist();
       },
       build: (id: UpgradeId) => this.buildUpgrade(id),
@@ -707,7 +793,7 @@ export class Game {
   }
 
   private buildUpgrade(id: UpgradeId): void {
-    const before = charterProgress(this.save).done;
+    const before = charterDone(this.save);
     const xp = build(this.save, id, true);
     if (!xp) return;
     if (this.save.tracked?.kind === 'upgrade' && this.save.tracked.id === id) this.save.tracked = null;
@@ -730,11 +816,12 @@ export class Game {
   }
 
   /** A finished Charter step gets its own moment. */
-  private checkCharter(before: number): void {
-    const { done, total } = charterProgress(this.save);
-    if (done <= before) return;
-    const step = CHAPTER_1.steps[done - 1];
-    this.banners.big('CHARTER STEP COMPLETE', step?.title ?? 'Progress', '#8ae05a', `${done} of ${total} toward Stamp #1`, 3.6);
+  private checkCharter(before: readonly boolean[]): void {
+    const now = charterDone(this.save);
+    const fresh = CHAPTER_1.steps.filter((_, i) => now[i] && !before[i]);
+    if (fresh.length === 0) return;
+    const done = now.filter(Boolean).length;
+    for (const step of fresh) this.banners.big('CHARTER STEP COMPLETE', step.title, '#8ae05a', `${done} of ${now.length} toward Stamp #1`, 3.6);
     audio.sfx('stepDone');
   }
 
@@ -744,10 +831,25 @@ export class Game {
       if (!this.save.flags.metGrubb) script = GRUBB_FIRST;
       else {
         const { done, total } = charterProgress(this.save);
-        script = grubbChat(total - done, nextCharterStep(this.save)?.title ?? null, this.save.grubbVisits++);
+        const order = ORDERS.coopOrder1;
+        script = grubbChat({
+          stepsLeft: total - done,
+          nextStep: nextCharterStep(this.save)?.title ?? null,
+          visit: this.save.grubbVisits++,
+          orderReady: canAfford(this.save, order.items, true),
+          fromCrate: !canAfford(this.save, order.items, false),
+          orderDone: this.save.flags[order.flag] === true,
+          stamped: this.save.flags.charterStamp1 === true,
+          occupancy: this.save.occupancy,
+          nextPayment: Math.min(OCCUPANCY_STEP, RETIREMENT_LEDGER.occupancyPrice - this.save.occupancy, this.save.buttons),
+        });
       }
     } else if (o.id === 'hatch') {
-      script = this.save.flags.metDorrit ? DORRIT_LATER : DORRIT_FIRST;
+      if (this.save.flags.hatchOpen) {
+        this.openTrade();
+        return;
+      }
+      script = this.save.flags.metGrubb ? DORRIT_OPEN : this.save.flags.metDorrit ? DORRIT_LATER : DORRIT_FIRST;
     } else {
       this.openBoard();
       return;
@@ -775,8 +877,82 @@ export class Game {
         audio.sfx('doorWhoosh');
         this.toasts.push("Grubb's back pipe is open: a shortcut home.", PAL.homeGlow);
         break;
+      case 'openHatch':
+        this.save.flags.hatchOpen = true;
+        this.save.flags.metDorrit = true;
+        this.pendingTrade = true;
+        break;
+      case 'deliverOrder': {
+        const order = ORDERS.coopOrder1;
+        if (this.save.flags[order.flag] || !pay(this.save, order.items, true)) break;
+        const before = charterDone(this.save);
+        this.save.flags[order.flag] = true;
+        this.save.buttons += order.rewardButtons;
+        audio.sfx('coins');
+        this.toasts.push(`+${order.rewardButtons} Brass Buttons`, '#f0d070');
+        this.checkCharter(before);
+        break;
+      }
+      case 'stamp':
+        this.pendingStamp = true;
+        break;
+      case 'payOccupancy': {
+        const paid = payOccupancy(this.save);
+        if (paid <= 0) break;
+        audio.sfx('coins');
+        this.toasts.push(`Paid ${paid} buttons. Occupancy: ${this.save.occupancy}/${RETIREMENT_LEDGER.occupancyPrice}`, '#f0d070');
+        if (this.save.flags.occupancyPaid) {
+          this.banners.big('OCCUPANCY RIGHTS', 'Paid in full', '#f0d070', 'The alcove is yours. Retirement: optional.', 4.5);
+          audio.sfx('stepDone');
+        }
+        break;
+      }
     }
     this.persist();
+  }
+
+  private openTrade(): void {
+    audio.sfx('page');
+    this.openOverlay(new TradeOverlay(this.save, {
+      sell: (item) => {
+        const price = sellOne(this.save, item);
+        if (price === null) return;
+        audio.sfx(price > 1 ? 'coins' : 'pickup');
+        this.toasts.push(`Sold ${ITEMS[item].name}: +${price}`, '#f0d070');
+        this.persist();
+      },
+      buy: (entry) => {
+        if (!buy(this.save, entry)) {
+          audio.sfx('uiDenied');
+          return;
+        }
+        audio.sfx('coins');
+        this.toasts.push(`Bought: ${shopName(entry)}`, PAL.homeGlow);
+        if (entry.kind === 'decor') this.toasts.push('Dorrit will have it carried to the Burrow.', PAL.textDim);
+        this.persist();
+      },
+      sound: (id) => audio.sfx(id),
+    }));
+  }
+
+  /** Grubb stamps the Charter: Chapter One is done, and free play carries on. */
+  private openStamp(): void {
+    if (this.save.flags.charterStamp1) return;
+    audio.sfx('page');
+    this.openOverlay(new StampOverlay(
+      CHAPTER_1.steps.map((s) => s.title),
+      () => {
+        this.save.flags.charterStamp1 = true;
+        this.feel.kick(4);
+        audio.sfx('stamp');
+        this.persist();
+      },
+      () => {
+        audio.sfx('levelUp');
+        this.banners.big('CHAPTER ONE COMPLETE', 'A Recognized Workshop', '#8ae05a', 'Free play: keep building. Occupancy rights cost 600 buttons.', 5);
+        this.persist();
+      },
+    ));
   }
 
   private openBoard(): void {
@@ -828,6 +1004,27 @@ export class Game {
         audio.sfx('uiSelect');
         this.toasts.push(id ? `Equipped ${ITEMS[id].name}.` : 'Back to plain scrap.', PAL.homeGlow);
       },
+      ready: (id) => {
+        this.save.readyThrow = id;
+        audio.sfx('uiSelect');
+        this.toasts.push(id ? `Throwing ${ITEMS[id].name} first.` : 'Throwing bottles, then pebbles.', PAL.homeGlow);
+      },
+      drop: (slot) => {
+        const stack = this.save.pack[slot];
+        if (!stack) return;
+        this.save.pack.splice(slot, 1);
+        const name = ITEMS[stack.item].name;
+        if (this.regionId === HOME_REGION) {
+          addToStorage(this.save, stack.item, stack.qty);
+          audio.sfx('deposit');
+          this.toasts.push(`Put ${stack.qty} ${name} in the crate.`, PAL.homeGlow);
+        } else {
+          this.scene.placePickup(stack.item, stack.qty, this.player.x, this.player.y + 4, true);
+          audio.sfx('deposit', { pitch: 0.8 });
+          this.toasts.push(`Dropped ${stack.qty} ${name}. It stays here until the bell.`, PAL.textDim);
+        }
+        this.persist();
+      },
       sound: (id) => audio.sfx(id),
     }, page));
   }
@@ -852,7 +1049,15 @@ export class Game {
   // ---------------------------------------------------------------- pack and food
 
   private pickup(item: ItemId, qty: number): number {
+    const before = charterDone(this.save);
     const n = addToPack(this.save, item, qty);
+    const prize = BOSS_PRIZES.find((p) => p.item === item);
+    if (prize && n > 0 && !this.save.flags[prize.flag]) {
+      this.save.flags[prize.flag] = true;
+      this.checkCharter(before);
+      this.persist();
+    }
+    if (item === 'stinkbrew' && n > 0) this.queueHint('stink');
     if (n > 0) {
       this.toasts.item(item, n, ITEMS[item].name);
       audio.sfx('pickup', { pitch: 1 + Math.random() * 0.15 });
@@ -862,7 +1067,8 @@ export class Game {
     if (n < qty && this.packFullT <= 0) {
       this.packFullT = 2.5;
       audio.sfx('packFull');
-      this.toasts.push('Pack full. Head home, or eat something.', PAL.danger);
+      const fix = this.regionId === HOME_REGION ? 'Put materials in the crate.' : `Drop something (${actionLabel('pack')}), or head home.`;
+      this.toasts.push(`No room for ${ITEMS[item].name}. ${fix}`, PAL.danger);
     }
     return n;
   }
@@ -882,22 +1088,31 @@ export class Game {
     }
     removeFromPack(this.save, food, 1);
     heal(h, (ITEMS[food] as ItemDef).heal ?? 0);
+    this.hintDone('eat');
     audio.sfx('eat');
     this.scene.effects.burst(this.player.x, this.player.y - 6, 8, FX.gel, 30);
     this.toasts.push(`Ate the ${ITEMS[food].name}.`, PAL.goblin);
   }
 
+  /** What F throws: the throwable picked in the pack if you have one, else a bottle, else a free pebble. */
+  private throwable(): 'pebble' | 'bottle' | 'stinkbrew' {
+    const ready = this.save.readyThrow;
+    if ((ready === 'stinkbrew' || ready === 'bottle') && packCount(this.save, ready) > 0) return ready;
+    return packCount(this.save, 'bottle') > 0 ? 'bottle' : 'pebble';
+  }
+
   private throwSomething(aimX: number, aimY: number): void {
     const p = this.player;
-    const bottle = packCount(this.save, 'bottle') > 0;
-    if (bottle) removeFromPack(this.save, 'bottle', 1);
+    const kind = this.throwable();
+    if (kind !== 'pebble') removeFromPack(this.save, kind, 1);
+    this.hintDone('throw');
     const dx = aimX - p.x;
     const dy = aimY - p.y;
     const d = Math.hypot(dx, dy) || 1;
     let r = Math.min(d, THROW_RANGE);
     // Stop short of walls.
     while (r > 8 && !lineOfSight(this.map, p.x, p.y - 4, p.x + (dx / d) * r, p.y + (dy / d) * r)) r -= 6;
-    this.throws.push({ kind: bottle ? 'bottle' : 'pebble', x0: p.x, y0: p.y - 6, x1: p.x + (dx / d) * r, y1: p.y + (dy / d) * r, t: 0, dur: 0.22 + r / 420 });
+    this.throws.push({ kind, x0: p.x, y0: p.y - 6, x1: p.x + (dx / d) * r, y1: p.y + (dy / d) * r, t: 0, dur: 0.22 + r / 420 });
     audio.sfx('throw');
   }
 
@@ -905,6 +1120,13 @@ export class Game {
     for (const t of this.throws) {
       t.t += dt;
       if (t.t < t.dur) continue;
+      if (t.kind === 'stinkbrew') {
+        this.scene.addCloud(t.x1, t.y1);
+        this.scene.noise(t.x1, t.y1, 70);
+        this.scene.effects.burst(t.x1, t.y1, 14, '#a8c060', 50);
+        this.play('bottleSmash', t.x1, t.y1);
+        continue;
+      }
       const big = t.kind === 'bottle';
       this.scene.noise(t.x1, t.y1, big ? 130 : 60);
       this.scene.effects.burst(t.x1, t.y1, big ? 10 : 4, big ? '#a8e0c8' : FX.dust, big ? 60 : 30);
@@ -963,7 +1185,11 @@ export class Game {
     const def = EVENTS[ev.id];
     if (storyGated(this.save, ev.id)) {
       // The first contract always happens in front of you: it's the stealth lesson.
-      if (this.regionId === def.region && this.regionTime >= STORY_CONTRACT_DELAY) this.startLive(ev.id);
+      if (this.regionId !== def.region) return;
+      const col = Math.floor(this.player.x / TILE);
+      const row = Math.floor(this.player.y / TILE);
+      const near = Math.hypot(col - def.zone.col, row - def.zone.row) <= def.zone.r + STORY_CONTRACT_NEAR;
+      if (this.regionTime >= STORY_CONTRACT_DELAY || near) this.startLive(ev.id);
       return;
     }
     if (this.save.playTime < ev.startsAt) return;
@@ -999,6 +1225,8 @@ export class Game {
     this.banners.big('THE SHIFT BELL', 'A new shift begins', PAL.textDim, 'Piles refill. Creatures stir. New contracts go up.', 3.4);
     pruneSpent(this.save);
     pruneEventNodes(this.save);
+    // The floors of other regions get swept. Whatever's here, in front of you, can stay.
+    this.save.floor = this.save.floor.filter((f) => f.shift === shift);
     for (const o of this.scene.objects) if (o.kind === 'node') o.spent = isSpent(this.save, o.key);
   }
 
@@ -1018,7 +1246,7 @@ export class Game {
 
   private updateMusic(dt: number): void {
     if (!this.scene) return;
-    const danger = this.scene.humans.some((h) => h.awareness === 'hostile' && !h.gone && h.task !== 'flee');
+    const danger = this.scene.humans.some((h) => h.awareness === 'hostile' && !h.gone && h.task !== 'flee') || this.scene.boss?.active === true;
     this.dangerT = danger ? 3 : Math.max(0, this.dangerT - dt);
     const track: TrackId = this.dangerT > 0 ? 'danger' : REGIONS[this.regionId].music;
     audio.music(track);
@@ -1035,7 +1263,21 @@ export class Game {
 
   private queueHint(id: HintId): void {
     if (this.save.hints.includes(id) || this.hintQueue.includes(id)) return;
-    this.hintQueue.push(id);
+    if (!URGENT_HINTS.includes(id)) {
+      this.hintQueue.push(id);
+      return;
+    }
+    // About what's happening right now: to the front of the line, and whatever's showing makes way.
+    this.hintQueue.unshift(id);
+    const shown = this.banners.hint;
+    if (shown && !URGENT_HINTS.includes(shown.id) && shown.t > 0.8) shown.life = Math.min(shown.life, shown.t + 0.3);
+  }
+
+  /** The goblin just did what a hint explains, so it needn't come up any more. */
+  private hintDone(id: HintId): void {
+    const i = this.hintQueue.indexOf(id);
+    if (i >= 0) this.hintQueue.splice(i, 1);
+    if (!this.save.hints.includes(id)) this.save.hints.push(id);
   }
 
   private updateHints(): void {
@@ -1101,6 +1343,7 @@ export class Game {
 
   private onKill(c: Creature, byPlayer: boolean): void {
     if (c.placementKey) markSpent(this.save, c.placementKey);
+    if (c.def.boss) this.onBossDefeated(c);
     for (const d of c.def.drops) {
       if (Math.random() >= d.chance) continue;
       const qty = d.min + Math.floor(Math.random() * (d.max - d.min + 1));
@@ -1139,10 +1382,13 @@ export class Game {
   private reportTrip(): void {
     const trip = this.trip;
     if (!trip) return;
-    const any = Object.values(trip.items).some((n) => (n ?? 0) > 0) || trip.defeated > 0;
+    const now = charterDone(this.save);
+    const steps = CHAPTER_1.steps.filter((_, i) => now[i] && !trip.charter[i]).map((s) => s.title);
+    const any = Object.values(trip.items).some((n) => (n ?? 0) > 0) || trip.defeated > 0 || steps.length > 0;
     if (!any) return;
     const report: TripReport = {
-      region: trip.region,
+      regions: trip.regions,
+      steps,
       seconds: this.save.playTime - trip.from,
       items: trip.items,
       xp: trip.xp,
@@ -1174,6 +1420,64 @@ export class Game {
     if (!name || !cost) return null;
     const parts = (Object.keys(cost) as ItemId[]).map((item) => ({ item, have: haveCount(this.save, item, true), need: cost[item] ?? 0 }));
     return { label: name, parts };
+  }
+
+  // ---------------------------------------------------------------- the Pump Matron
+
+  private onBoss(kind: BossEventKind, x: number, y: number): void {
+    const boss = this.scene.boss;
+    switch (kind) {
+      case 'start':
+        this.save.flags.matronSeen = true;
+        this.banners.big('THE PUMP MATRON', 'Mother of all Scrapbacks', '#e05030', 'Her front is armored. Her back is not.', 3.6);
+        this.banners.caption = { text: BOSS_LINES.start, t: 0, life: 5 };
+        audio.sfx('matronRoar');
+        this.feel.kick(3);
+        this.queueHint('armor');
+        break;
+      case 'phase2':
+        this.banners.caption = { text: BOSS_LINES.phase2, t: 0, life: 5 };
+        audio.sfx('steam');
+        this.feel.kick(2);
+        this.queueHint('valve');
+        // Show the hint now: it's the trick to the fight.
+        if (this.banners.hint) this.banners.hint.life = Math.min(this.banners.hint.life, this.banners.hint.t + 0.2);
+        break;
+      case 'add':
+        this.play('miteClick', x, y);
+        this.scene.effects.burst(x, y - 4, 8, FX.dust, 40);
+        break;
+      case 'steam':
+        this.play('steam', x, y);
+        this.scene.effects.burst(x, y + 20, 18, '#f0f4f0', 80, Math.random, 0.7);
+        break;
+      case 'flipped':
+        this.play('clank', x, y);
+        this.play('matronRoar', x, y);
+        this.feel.kick(3);
+        this.bossFlash = 0.3;
+        if (boss) this.scene.effects.number(boss.boss.x, boss.boss.y - boss.boss.radius - 8, 'FLIPPED!', '#f0d070');
+        break;
+    }
+  }
+
+  /** The flywheel rolls loose, the drain gate opens, and the sluice runs free for good. */
+  private onBossDefeated(c: Creature): void {
+    const flag = c.def.boss!.flag;
+    if (this.save.flags[flag]) return;
+    this.save.flags[flag] = true;
+    this.save.flags.sluiceOpen = true;
+    this.rebake();
+    this.findFixtures();
+    this.feel.freeze(0.25);
+    this.feel.kick(5);
+    audio.sfx('matronRoar');
+    audio.sfx('build');
+    this.scene.effects.burst(c.x, c.y, 30, '#c87533', 90, Math.random, 0.8);
+    this.scene.effects.burst(c.x, c.y, 20, FX.spark, 70, Math.random, 0.6);
+    this.banners.big('DEFEATED', 'The Pump Matron', '#f0d070', 'The drain gate is open: a shortcut back to the Cistern.', 4);
+    this.banners.caption = { text: BOSS_LINES.defeated, t: 0, life: 5 };
+    this.persist();
   }
 
   // ---------------------------------------------------------------- sound
@@ -1234,8 +1538,18 @@ export class Game {
     }
   }
 
+  /** Remember what's lying on this region's floor, so it's still there after a trip or a reload (until the bell). */
+  private stashFloor(): void {
+    const shift = shiftIndex(this.save.playTime);
+    this.save.floor = this.save.floor.filter((f) => f.region !== this.regionId);
+    for (const p of this.scene.pickups) {
+      if (!p.dead && p.qty > 0) this.save.floor.push({ region: this.regionId, shift, item: p.item, qty: p.qty, x: Math.round(p.x), y: Math.round(p.y) });
+    }
+  }
+
   persist(): void {
     if (this.mode === 'asleep') return;
+    this.stashFloor();
     this.save.pos = { x: this.player.x, y: this.player.y };
     this.save.hp = this.player.health.hp;
     this.save.region = this.regionId;
@@ -1283,7 +1597,10 @@ export class Game {
         case 'station':
           if (o.id === 'lantern') L.push(up('scrapLantern') ? { x: o.x, y: o.y - 18, r: 150, color: '#ffc070', a: 1, flicker: 0.1 } : { x: o.x, y: o.y - 12, r: 58, color: '#ffb050', a: 0.85, flicker: 0.35 });
           if (o.id === 'pot') L.push({ x: o.x, y: o.y - 2, r: 48, color: '#ff8a30', a: 0.85, flicker: 0.5 });
-          if (o.id === 'slimeGenerator' && up('slimeGenerator') && this.save.flags.generatorActive) L.push({ x: o.x, y: o.y - 12, r: 52, color: '#58c078', a: 0.7 });
+          if (o.id === 'slimeGenerator' && up('slimeGenerator') && this.save.charge > 0) L.push({ x: o.x, y: o.y - 12, r: 40 + this.save.charge * 1.5, color: '#58c078', a: 0.75, flicker: 0.08 });
+          break;
+        case 'valve':
+          if (this.scene.boss?.valveState(o) === 'ready') L.push({ x: o.x, y: o.y - 12, r: 30, color: '#ff8a50', a: 0.75, flicker: 0.3, seed: o.col });
           break;
         case 'npc':
           if (o.id === 'grubb') L.push({ x: o.x, y: o.y - 14, r: 74, color: '#ffd080', a: 0.85, flicker: 0.08 });
@@ -1304,6 +1621,8 @@ export class Game {
         L.push({ x: h.aimAt.x, y: h.aimAt.y, r: 18 + 30 * k, color: '#ff7a30', a: 0.75 });
       }
     }
+    const boss = this.scene.boss;
+    if (boss && !boss.boss.dead) L.push({ x: boss.boss.x, y: boss.boss.y - 6, r: 44, color: '#f0a060', a: 0.45 });
     for (const pr of this.scene.projectiles) {
       if (pr.kind === 'charged') L.push({ x: pr.x, y: pr.y, r: 20, color: '#ffd29a', a: 0.8 });
       else if (pr.kind === 'gel' || pr.kind === 'slimeShot') L.push({ x: pr.x, y: pr.y, r: 12, color: '#58c078', a: 0.5 });
@@ -1335,6 +1654,7 @@ export class Game {
       goblinHidden: this.hidden,
       asleep: this.mode === 'asleep',
       boardNews: this.regionId === 'coop' && currentEvent(this.save).status === 'pending',
+      boss: this.scene.boss,
     };
 
     this.renderer.drawTerrain(ctx, view, this.time);
@@ -1371,6 +1691,20 @@ export class Game {
     }
   }
 
+  /** Is anything worth seeing behind the HUD panels: the goblin, what it would use, creatures, people, or speech? */
+  private hudCovering(): boolean {
+    if (this.hudPanels.length === 0 || !this.scene) return false;
+    const vx = this.camera.drawX;
+    const vy = this.camera.drawY;
+    const behind = (x: number, y: number, r: number) =>
+      this.hudPanels.some((p) => x - vx + r > p.x - 4 && x - vx - r < p.x + p.w + 4 && y - vy + r > p.y - 4 && y - vy - r < p.y + p.h + 4);
+    if (behind(this.player.x, this.player.y - 6, 10)) return true;
+    if (this.focus && behind(this.focus.x, this.focus.y - 8, 14)) return true;
+    if (this.scene.creatures.some((c) => !c.dead && behind(c.x, c.y, c.radius + 4))) return true;
+    if (this.scene.humans.some((h) => behind(h.x, h.y - 6, 10))) return true;
+    return this.scene.bubbles.some((b) => behind(b.x, b.y - 50, 34));
+  }
+
   private renderHud(fps: number, view: View): void {
     const hud = this.hud;
     hud.begin();
@@ -1389,9 +1723,23 @@ export class Game {
       return;
     }
 
+    // The fixed HUD first, so prompts, speech, and numbers out in the world are never painted over.
+    drawHearts(hud, this.player.health.hp, this.player.health.max, this.time);
+    const thrown = this.throwable();
+    const modX = drawThrowable(hud, thrown, thrown === 'pebble' ? 0 : packCount(this.save, thrown), 10 + this.player.health.max * 5);
+    if (this.save.equippedMod) drawMod(hud, this.save.equippedMod, modX + 8);
+    drawButtons(hud, this.save.buttons);
+    drawShiftClock(hud, this.save.playTime);
+    hud.setAlpha(this.hudAlpha);
+    const o = currentObjective(this.save);
+    const panels: PanelRect[] = [drawObjective(hud, o.title, o.text, o.done, o.total, this.objectiveFlash)];
+    const tracked = drawTracked(hud, this.save);
+    if (tracked) panels.push(tracked);
+    this.hudPanels = panels;
+    hud.setAlpha(1);
+
     drawDamageNumbers(hud, view, this.scene.effects.texts, FEEL.damageNumberTime);
     drawBubbles(hud, view, this.scene.bubbles);
-
     if (this.focus && this.mode === 'play' && this.overlays.length === 0 && !this.transition) {
       const { verb, label } = this.promptFor(this.focus);
       const def = this.focus.kind === 'node' ? (NODES[this.focus.id as NodeId] as NodeDef) : null;
@@ -1399,15 +1747,13 @@ export class Game {
       const fy = this.focus.kind === 'hole' ? this.focus.row * TILE + 22 : this.focus.y;
       drawPrompt(hud, view, this.focus.x, fy, verb, label, progress, this.lockReason(this.focus));
     }
-
-    drawHearts(hud, this.player.health.hp, this.player.health.max, this.time);
-    drawButtons(hud, this.save.buttons);
-    drawShiftClock(hud, this.save.playTime);
-    const o = currentObjective(this.save);
-    drawObjective(hud, o.title, o.text, o.done, o.total, this.objectiveFlash);
-    drawTracked(hud, this.save);
     if (this.homeExit && this.regionId !== HOME_REGION) drawHomeArrow(hud, view, this.homeExit.x, this.homeExit.y, this.time);
 
+    const bf = this.scene.boss;
+    if (bf?.active) {
+      const def = bf.boss.def;
+      drawBossBar(hud, def.name, bf.boss.hp, def.hp, def.boss?.phase2At ?? 0, this.time, this.bossFlash > 0);
+    }
     this.banners.draw(hud, this.overlays.length > 0);
     this.toasts.draw(hud);
     if (this.overlays.length === 0) drawControlsStrip(hud);

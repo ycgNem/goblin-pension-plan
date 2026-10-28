@@ -25,10 +25,15 @@ export const HATCH_BUYS: Partial<Record<ItemId, { price: number; demand: number 
 
 /** Items you can't make yourself. None of them can be broken down for profit. */
 export const HATCH_SELLS: Partial<Record<ItemId, { price: number }>> = {
-  truffleSpores: { price: 20 },
+  truffleSpores: { price: 16 },
+  copper: { price: 6 },
   bottle: { price: 3 },
-  cloth: { price: 3 },
+  cloth: { price: 4 },
+  bandolier: { price: 35 },
 };
+
+/** Grubb takes payments toward occupancy rights in steps of this many buttons. */
+export const OCCUPANCY_STEP = 25;
 
 /** Price for the nth unit (0-based) sold this shift. */
 export function hatchPrice(item: ItemId, soldThisShift: number): number {

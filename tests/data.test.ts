@@ -5,6 +5,7 @@ import { HATCH_BUYS, HATCH_SELLS, hatchPrice, RAW_SELL_PRICE } from '../src/data
 import { CREATURES, HUMANS, type CreatureDef } from '../src/data/enemies';
 import { FLAGS } from '../src/data/flags';
 import { ITEMS, ITEM_IDS, type ItemBag, type ItemId } from '../src/data/items';
+import { BONUS_ITEM_LEVEL, NODES } from '../src/data/nodes';
 import { RECIPES } from '../src/data/recipes';
 import { levelForXp, SKILLS, SKILL_MAX_LEVEL, xpForLevel } from '../src/data/skills';
 import { UPGRADES } from '../src/data/upgrades';
@@ -136,9 +137,39 @@ describe('charter', () => {
     const drop = CREATURES.pumpMatron.drops.find((d) => d.item === 'flywheelCoil');
     expect(drop?.chance).toBe(1);
   });
+
+  it("a boss's prize is a quest item it always drops, with a flag of its own", () => {
+    for (const [id, c] of Object.entries(CREATURES)) {
+      const boss = (c as CreatureDef).boss;
+      if (!boss) continue;
+      expect(ITEMS[boss.prize.item as ItemId]?.category, id).toBe('quest');
+      expect(c.drops.find((d) => d.item === boss.prize.item)?.chance, id).toBe(1);
+      expect(FLAGS).toContain(boss.flag);
+      expect(FLAGS).toContain(boss.prize.flag);
+      expect(boss.adds in CREATURES, `${id} adds`).toBe(true);
+    }
+  });
 });
 
 describe('skills', () => {
+  it('every milestone past level 1 unlocks something real', () => {
+    const gates = new Set<string>();
+    const add = (req: { skill?: string; level?: number } | undefined) => {
+      if (req?.skill && req.level) gates.add(`${req.skill} ${req.level}`);
+    };
+    for (const r of Object.values(RECIPES)) add((r as { requires?: { skill?: string; level?: number } }).requires);
+    for (const u of Object.values(UPGRADES)) add((u as { requires?: { skill?: string; level?: number } }).requires);
+    for (const n of Object.values(NODES)) add((n as { requires?: { skill: string; level: number } }).requires);
+    // Coded rather than gated in data: Scrapping's are combat stats, and the bonus item from piles.
+    gates.add(`scavenging ${BONUS_ITEM_LEVEL}`);
+    for (const [id, skill] of Object.entries(SKILLS)) {
+      if (id === 'scrapping') continue;
+      for (const m of skill.milestones) {
+        if (m.level > 1) expect(gates.has(`${id} ${m.level}`), `${id} ${m.level}: ${m.text}`).toBe(true);
+      }
+    }
+  });
+
   it('xp thresholds rise and invert correctly', () => {
     for (let lv = 2; lv <= SKILL_MAX_LEVEL; lv++) {
       expect(xpForLevel(lv)).toBeGreaterThan(xpForLevel(lv - 1));

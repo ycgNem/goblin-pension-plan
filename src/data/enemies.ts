@@ -1,3 +1,4 @@
+import type { FlagId } from './flags';
 import type { ItemId } from './items';
 
 // Creatures fight in the open. Humans have vision, awareness, and long telegraphs.
@@ -44,7 +45,35 @@ export interface CreatureDef {
   pack?: boolean;
   /** Shots that hit the front 120 degrees are deflected. */
   armoredFront?: boolean;
+  /**
+   * Radians per second. Creatures that turn slowly walk where they face and only attack
+   * straight ahead, so you can get behind them.
+   */
+  turnRate?: number;
   splitsInto?: { creature: string; count: number };
+  /** A boss fight: a second phase, adds from vents, and a stun that exposes it from every side. */
+  boss?: BossDef;
+}
+
+export interface BossDef {
+  /** Set when it's beaten. It never comes back after that. */
+  flag: FlagId;
+  /** The quest item it guards (also a guaranteed drop), and the flag set once it's picked up. Never lost: it waits in the lair. */
+  prize: { item: string; flag: FlagId };
+  /** The second phase starts at this fraction of health. */
+  phase2At: number;
+  /** How much faster it turns in the second phase. */
+  enrage: number;
+  /** In the second phase it clamps its shell shut: only flipping it over (steam) opens it up. */
+  seals: boolean;
+  /** What crawls out of the vents in phase two, how often, and how many at once. */
+  adds: string;
+  addEvery: number;
+  maxAdds: number;
+  /** Seconds a steam blast leaves it flipped over. */
+  stun: number;
+  /** Damage multiplier while it's on its back. */
+  bellyDamage: number;
 }
 
 export const CREATURES = {
@@ -74,22 +103,29 @@ export const CREATURES = {
     aggroRange: 120, attackRange: 80, recover: 0.8, lunge: { speed: 210, time: 0.4 }, heavy: true, knockbackTaken: 0.7,
   },
   scrapbackBeetle: {
-    name: 'Scrapback Beetle', behavior: 'beetle', color: '#b0703a', hp: 10, speed: 26, radius: 8, damage: 2, windup: 0.7, xp: 18,
+    name: 'Scrapback Beetle', behavior: 'beetle', color: '#b0703a', hp: 8, speed: 34, radius: 8, damage: 2, windup: 0.7, xp: 18,
     desc: 'Armored front. Soft behind. Turns slowly.',
-    armoredFront: true,
-    drops: [{ item: 'scrap', min: 1, max: 2, chance: 1 }, { item: 'copper', min: 1, max: 1, chance: 0.25 }],
-    aggroRange: 100, attackRange: 28, recover: 0.9, lunge: { speed: 140, time: 0.2 }, heavy: true, knockbackTaken: 0.2,
+    armoredFront: true, turnRate: 1.7,
+    drops: [{ item: 'scrap', min: 1, max: 2, chance: 1 }, { item: 'copper', min: 1, max: 1, chance: 0.35 }],
+    aggroRange: 110, attackRange: 46, recover: 1.1, lunge: { speed: 170, time: 0.28 }, heavy: true, knockbackTaken: 0.2,
   },
   pumpMatron: {
-    name: 'The Pump Matron', behavior: 'matron', color: '#d0482a', hp: 80, speed: 50, radius: 20, damage: 3, windup: 0.9, xp: 120,
+    name: 'The Pump Matron', behavior: 'matron', color: '#d0482a', hp: 80, speed: 42, radius: 18, damage: 2, windup: 1.0, xp: 120,
     desc: 'Grew the pump flywheel into her shell. Very protective of it.',
-    armoredFront: true,
+    armoredFront: true, turnRate: 1.25,
     drops: [{ item: 'flywheelCoil', min: 1, max: 1, chance: 1 }, { item: 'copper', min: 3, max: 3, chance: 1 }],
-    aggroRange: 200, attackRange: 120, recover: 1.4, lunge: { speed: 260, time: 0.6 }, heavy: true, knockbackTaken: 0,
+    aggroRange: 220, attackRange: 150, recover: 1.5, lunge: { speed: 250, time: 0.6 }, heavy: true, knockbackTaken: 0,
+    boss: { flag: 'matronDefeated', prize: { item: 'flywheelCoil', flag: 'flywheelRecovered' }, phase2At: 0.6, enrage: 1.4, seals: true, adds: 'boneMite', addEvery: 9, maxAdds: 2, stun: 3, bellyDamage: 2 },
   },
 } as const satisfies Record<string, CreatureDef>;
 
 export type CreatureId = keyof typeof CREATURES;
+
+/** Every boss's prize: picking one up sets its flag. */
+export const BOSS_PRIZES: readonly BossDef['prize'][] = Object.values(CREATURES).flatMap((c) => {
+  const boss = (c as CreatureDef).boss;
+  return boss ? [boss.prize] : [];
+});
 
 export type HumanRole = 'hero' | 'worker' | 'guard';
 export type HumanAttack = 'shieldCharge' | 'aimedShot' | 'fireCircle' | 'baton';

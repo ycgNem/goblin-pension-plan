@@ -122,7 +122,9 @@ export class ReceiptOverlay extends Card {
 // ---------------------------------------------------------------- expedition summary
 
 export interface TripReport {
-  region: RegionId;
+  regions: RegionId[];
+  /** Charter steps this trip finished. They come first: they're the point. */
+  steps: string[];
   seconds: number;
   items: ItemBag;
   xp: Partial<Record<SkillId, number>>;
@@ -141,14 +143,21 @@ export class SummaryOverlay extends Card {
     const xp = Object.entries(this.r.xp).filter(([, n]) => (n ?? 0) > 0) as [SkillId, number][];
     const w = 280;
     const itemRows = Math.max(1, Math.ceil(items.length / 3));
-    const h = 64 + itemRows * 14 + (xp.length > 0 ? 18 : 0) + (this.r.progress ? 34 : 0) + 8;
+    const h = 64 + itemRows * 14 + (xp.length > 0 ? 18 : 0) + (this.r.progress ? 34 : 0) + this.r.steps.length * 12 + 8;
     const x = Math.round((VIEW_W - w) / 2);
     const y = Math.round((VIEW_H - h) / 2) - 10 + this.rise;
     hud.panel(x, y, w, h);
     heading(hud, 'BACK HOME', x + 10, y + 8, w - 20);
-    hud.text(`${REGIONS[this.r.region].name} · ${formatTime(this.r.seconds)}${this.r.defeated ? ` · ${this.r.defeated} defeated` : ''}`, x + w - 10, y + 9, { size: 7, color: UI.dim, align: 'right' });
+    // "Refuse Galleries" is just "Galleries" here, so a long trip still fits on the line.
+    const where = this.r.regions.map((r) => REGIONS[r].name.split(' ').at(-1)).join(' · ');
+    hud.text(`${where} · ${formatTime(this.r.seconds)}${this.r.defeated ? ` · ${this.r.defeated} defeated` : ''}`, x + w - 10, y + 9, { size: 7, color: UI.dim, align: 'right' });
 
     let cy = y + 26;
+    for (const step of this.r.steps) {
+      hud.sprite(CHECK_ICON, x + 12, cy + 1);
+      hud.text(`Charter step done: ${step}`, x + 22, cy, { size: 8, color: UI.good });
+      cy += 12;
+    }
     hud.text('BROUGHT BACK', x + 10, cy, { font: 'head', size: 6, color: UI.dim });
     cy += 11;
     if (items.length === 0) hud.text('Nothing this time. Fresh air, mostly.', x + 12, cy, { size: 8, color: UI.dim });
@@ -235,5 +244,77 @@ export class BoardOverlay extends Card {
     note(x + 176, y + 30 + surveyH, 150, 'WARNING', 'Old Pumpworks closed indefinitely. Unidentified clanking.', '#e0c050');
     hud.text(`Next Shift Bell in ${formatTime(this.info.bellIn)}`, x + w - 12, y + h - 13, { size: 7, color: '#2a1a10', align: 'right', edge: 'none' });
     keyHints(hud, [['E', 'Done']], VIEW_W / 2, y + h + 6, 'center');
+  }
+}
+
+// ---------------------------------------------------------------- Stamp #1
+
+/** The end of Chapter One: the Charter, every box ticked, and Grubb's stamp coming down. */
+export class StampOverlay extends Card {
+  private stamped = false;
+
+  constructor(private readonly steps: readonly string[], private readonly onStamp: () => void, onClose?: () => void) {
+    super(onClose);
+  }
+
+  /** When the stamp lands, in seconds after the card opens. */
+  private static readonly AT = 1.6;
+
+  override update(dt: number, input: Input): void {
+    this.t += dt;
+    if (!this.stamped && this.t >= StampOverlay.AT) {
+      this.stamped = true;
+      this.onStamp();
+    }
+    if (this.t > StampOverlay.AT + 1.2 && (confirmPressed(input) || backPressed(input) || input.wasMousePressed(0))) this.close();
+  }
+
+  draw(hud: Hud, time: number): void {
+    const w = 250;
+    const h = 196;
+    const x = Math.round((VIEW_W - w) / 2);
+    const y = Math.round((VIEW_H - h) / 2) - 6 + this.rise;
+    hud.fade(0.6);
+    hud.panel(x, y, w, h, 'paper');
+    hud.text('GOBLIN COOPERATIVE · OFFICE OF BURROW CHARTERS', VIEW_W / 2, y + 9, { font: 'head', size: 5, color: UI.inkDim, align: 'center', edge: 'none' });
+    hud.text('BURROW CHARTER', VIEW_W / 2, y + 20, { font: 'head', size: 11, color: UI.ink, align: 'center', edge: 'none' });
+    hud.fill(x + 30, y + 35, w - 60, 1, 'rgba(90, 60, 30, 0.35)');
+    this.steps.forEach((label, i) => {
+      const ly = y + 44 + i * 15;
+      hud.fill(x + 20, ly, 9, 9, '#6a5440');
+      hud.fill(x + 21, ly + 1, 7, 7, '#e8dcb8');
+      // Ticks go in one after another before the stamp comes down.
+      if (this.t > 0.15 + i * 0.18) hud.sprite(CHECK_ICON, x + 21, ly + 2);
+      hud.text(label, x + 34, ly + 1, { size: 8, color: '#3a2a1a', edge: 'none' });
+    });
+    hud.text('Registrar: Grubb (his mark)', x + 20, y + h - 40, { size: 8, color: UI.inkDim, edge: 'none' });
+
+    if (this.t >= StampOverlay.AT - 0.12) {
+      const k = Math.min(1, (this.t - (StampOverlay.AT - 0.12)) / 0.12);
+      const s = 1 + (1 - k) * 1.8;
+      const ui = hud.ui;
+      ui.save();
+      ui.translate(x + w - 70, y + h - 46);
+      ui.rotate(-0.16);
+      ui.scale(s, s);
+      ui.globalAlpha = k;
+      ui.strokeStyle = '#2a7a2a';
+      ui.lineWidth = 2;
+      ui.strokeRect(-50, -15, 100, 30);
+      ui.lineWidth = 1;
+      ui.strokeRect(-46, -11, 92, 22);
+      ui.font = '9px Silkscreen, monospace';
+      ui.fillStyle = '#2a7a2a';
+      ui.textAlign = 'center';
+      ui.textBaseline = 'middle';
+      ui.fillText('RECOGNIZED', 0, -3);
+      ui.font = '6px Silkscreen, monospace';
+      ui.fillText('WORKSHOP · STAMP #1', 0, 6);
+      ui.restore();
+    }
+    if (this.t > StampOverlay.AT + 0.6) {
+      hud.text('The Guild survey is withdrawn. Premises are not "content".', VIEW_W / 2, y + h + 6, { size: 8, color: UI.gold, align: 'center', edge: 'outline' });
+      if (Math.floor(time * 2) % 2 === 0 || this.t > StampOverlay.AT + 2) keyHints(hud, [['E', 'Continue']], VIEW_W / 2, y + h + 20, 'center');
+    }
   }
 }

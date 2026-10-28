@@ -15,6 +15,11 @@ export function nextCharterStep(save: SaveData): CharterStep | null {
   return CHAPTER_1.steps.find((step) => !isCheckMet(step.check, save)) ?? null;
 }
 
+/** Which Charter steps are done, in Charter order. Steps can be finished in any order. */
+export function charterDone(save: SaveData): boolean[] {
+  return CHAPTER_1.steps.map((step) => isCheckMet(step.check, save));
+}
+
 export function charterProgress(save: SaveData): { done: number; total: number } {
   const done = CHAPTER_1.steps.filter((step) => isCheckMet(step.check, save)).length;
   return { done, total: CHAPTER_1.steps.length };

@@ -61,13 +61,19 @@ export class Hud {
   constructor(readonly px: CanvasRenderingContext2D, readonly ui: CanvasRenderingContext2D, private getScale: () => number) {}
 
   begin(): void {
-    const s = this.getScale();
     this.ui.setTransform(1, 0, 0, 1, 0, 0);
     this.ui.clearRect(0, 0, this.ui.canvas.width, this.ui.canvas.height);
-    this.ui.setTransform(s, 0, 0, s, 0, 0);
+    this.origin(0, 0);
     this.ui.textBaseline = 'top';
     this.ui.imageSmoothingEnabled = false;
     this.setAlpha(1);
+  }
+
+  /** Move (0, 0) for everything drawn after this, on both layers. Screens laid out on a centered stage use it. */
+  origin(x: number, y: number): void {
+    const s = this.getScale();
+    this.ui.setTransform(s, 0, 0, s, x * s, y * s);
+    this.px.setTransform(1, 0, 0, 1, x, y);
   }
 
   // ---------------------------------------------------------------- text
@@ -83,7 +89,8 @@ export class Hud {
     const font = style.font ?? 'body';
     ctx.font = this.font(size, font, style.bold);
     ctx.textAlign = style.align ?? 'left';
-    const edge = style.edge ?? 'shadow';
+    // Small numbers lose their counters under a drop shadow (a 5 reads as an 8), so bare numbers go without.
+    const edge = style.edge ?? (/^[\d\s/×+%:.,-]+$/.test(str) ? 'none' : 'shadow');
     if (edge === 'outline') {
       ctx.lineJoin = 'round';
       ctx.lineWidth = Math.max(1.4, size * 0.3);
@@ -258,13 +265,15 @@ export class Hud {
     }
   }
 
-  /** Darken everything drawn so far, both layers. Draw it last for fades. */
+  /** Darken everything drawn so far, both layers, across the whole view. Draw it last for fades. */
   fade(alpha: number, color = '#050605'): void {
     if (alpha <= 0) return;
-    const prev = this.ui.globalAlpha;
+    const s = this.getScale();
+    this.ui.save();
+    this.ui.setTransform(s, 0, 0, s, 0, 0);
     this.ui.globalAlpha = clamp(alpha, 0, 1);
     this.ui.fillStyle = color;
     this.ui.fillRect(0, 0, VIEW_W, VIEW_H);
-    this.ui.globalAlpha = prev;
+    this.ui.restore();
   }
 }

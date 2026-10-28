@@ -1,5 +1,5 @@
 import type { Input } from '../core/input';
-import { VIEW_W } from '../core/screen';
+import { BASE_W, VIEW_H, VIEW_W } from '../core/screen';
 import { SPEAKERS, type DialogueEffect, type DialogueNode, type Script } from '../data/story';
 import { portrait } from '../render/art/portraits';
 import type { Hud } from './hud';
@@ -8,9 +8,14 @@ import { confirmPressed, cursor, keyHints, ListNav, UI, type Overlay } from './o
 const CHARS_PER_SECOND = 48;
 const PAUSE_AFTER: Record<string, number> = { '.': 0.22, '!': 0.22, '?': 0.22, ',': 0.1, ':': 0.12 };
 
-const BOX = { x: 8, y: 190, w: VIEW_W - 16, h: 74 };
-const TEXT_X = BOX.x + 62;
+/** The dialogue box: base width, centered, along the bottom of the view. Placed every frame. */
+const BOX = { x: 8, y: 190, w: BASE_W - 16, h: 74 };
 const TEXT_W = BOX.w - 70;
+
+function placeBox(): void {
+  BOX.x = Math.round((VIEW_W - BOX.w) / 2);
+  BOX.y = VIEW_H - BOX.h - 6;
+}
 
 export interface DialogueHooks {
   effect(e: DialogueEffect): void;
@@ -29,6 +34,8 @@ export class DialogueOverlay implements Overlay {
   private sinceBlip = 0;
   private readonly nav = new ListNav(0);
   private blinkT = 0;
+  /** Choices already picked in this conversation: dimmed, and the cursor starts past them. */
+  private readonly asked = new Set<string>();
 
   constructor(private readonly script: Script, private readonly hooks: DialogueHooks) {
     this.node = this.enter(script.start);
@@ -41,7 +48,9 @@ export class DialogueOverlay implements Overlay {
     this.line = 0;
     this.shown = 0;
     this.nav.count = node.choices?.length ?? 0;
-    this.nav.index = 0;
+    // Start on the first thing not asked yet, so pressing on doesn't replay an answer.
+    const fresh = node.choices?.findIndex((c) => !this.asked.has(c.text)) ?? -1;
+    this.nav.index = Math.max(0, fresh);
     return node;
   }
 
@@ -89,6 +98,7 @@ export class DialogueOverlay implements Overlay {
       const picked = this.nav.update(input, () => this.hooks.blip(1.6));
       if (picked === null) return;
       const choice = this.node.choices![picked]!;
+      this.asked.add(choice.text);
       this.hooks.select();
       if (choice.next === null) this.done = true;
       else this.node = this.enter(choice.next);
@@ -107,6 +117,7 @@ export class DialogueOverlay implements Overlay {
   draw(hud: Hud, time: number): void {
     const l = this.current;
     if (!l) return;
+    placeBox();
     const sp = SPEAKERS[l.who];
 
     hud.panel(BOX.x, BOX.y, BOX.w, BOX.h);
@@ -128,7 +139,7 @@ export class DialogueOverlay implements Overlay {
     lines.forEach((text, i) => {
       const part = text.slice(0, Math.max(0, left));
       left -= text.length + 1;
-      hud.text(part, TEXT_X, BOX.y + 8 + i * 12, { size: 8 });
+      hud.text(part, BOX.x + 62, BOX.y + 8 + i * 12, { size: 8 });
     });
 
     if (this.choosing) this.drawChoices(hud, time);
@@ -154,7 +165,8 @@ export class DialogueOverlay implements Overlay {
       this.nav.place({ x, y: cy - 2, w, h: 13 });
       const on = i === this.nav.index;
       if (on) cursor(hud, x + 6, cy + 2, time);
-      hud.text(c.text, x + 16, cy, { size: 8, color: on ? UI.text : UI.dim });
+      const old = this.asked.has(c.text) && c.next !== null;
+      hud.text(c.text, x + 16, cy, { size: 8, color: on ? UI.text : old ? UI.faint : UI.dim });
     });
   }
 }

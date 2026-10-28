@@ -1,3 +1,4 @@
+import type { Action } from '../core/keys';
 import type { PortraitId } from '../render/art/portraits';
 import type { RegionId } from './regions';
 
@@ -86,7 +87,7 @@ export interface DialogueNode {
   effect?: DialogueEffect;
 }
 
-export type DialogueEffect = 'metGrubb' | 'openShortcut' | 'metDorrit';
+export type DialogueEffect = 'metGrubb' | 'openShortcut' | 'metDorrit' | 'openHatch' | 'deliverOrder' | 'stamp' | 'payOccupancy';
 
 export type Script = { start: string; nodes: Record<string, DialogueNode> };
 
@@ -116,7 +117,7 @@ export const GRUBB_FIRST: Script = {
     },
     charter: {
       lines: [
-        { who: 'grubb', text: 'Six requirements. Walls. Food. A workshop. Power. And one order filled for the Cooperative.' },
+        { who: 'grubb', text: 'Six requirements. Walls. Food. A workshop. A power part, then power. And one order for the Co-op.' },
         { who: 'grubb', text: 'Bring me proof and I stamp it. I enjoy stamping. It is the best part of the job.' },
       ],
       choices: grubbMenu,
@@ -131,29 +132,103 @@ export const GRUBB_FIRST: Script = {
   },
 };
 
-/** Grubb on later visits, depending on how the charter is going. */
-export function grubbChat(stepsLeft: number, nextStep: string | null, visit: number): Script {
+/** What Grubb needs to know to pick what to say on a later visit. */
+export interface GrubbState {
+  /** Charter steps not done yet, the supply order included. */
+  stepsLeft: number;
+  nextStep: string | null;
+  visit: number;
+  /** The order's goods are on hand (pack or storage: the Union fetches from your crate). */
+  orderReady: boolean;
+  /** Some of the order is in the crate at home, not in the pack. */
+  fromCrate: boolean;
+  orderDone: boolean;
+  stamped: boolean;
+  /** Buttons paid toward occupancy rights so far, and what the next payment would be. */
+  occupancy: number;
+  nextPayment: number;
+}
+
+const ASIDES = [
+  'Have you met Dorrit at the Hatch? Count your fingers afterwards.',
+  'The Guild sent a surveyor down last year. He is still in the Cistern. Probably fine.',
+  'I once stamped a form so hard the desk needed a charter of its own.',
+  'If the Union rats bring you home, sign the receipt. They are very particular about the receipt.',
+  'Bylaw nine is my favorite bylaw. I have read the others. Nine is better.',
+];
+
+/** Grubb on later visits: the Charter, the supply order, the stamp, and then the pension. */
+export function grubbChat(st: GrubbState): Script {
+  const nodes: Record<string, DialogueNode> = {};
+  const aside: Line = { who: 'grubb', text: ASIDES[st.visit % ASIDES.length]! };
+
+  nodes.stamp = {
+    effect: 'stamp',
+    lines: [
+      { who: 'grubb', text: 'Every requirement met. I have been holding this stamp for some time.' },
+      { who: 'grubb', text: 'Hold still. This is the good part.' },
+    ],
+  };
+  nodes.order = {
+    lines: [
+      { who: 'grubb', text: 'Cooperative Supply Order Number One. Four Dried Glowcap Rations. Two Slime Cells.' },
+      { who: 'grubb', text: 'Rations come off a drying rack. Cells need generator power. Bring them, I pay forty buttons.' },
+    ],
+    next: 'menu',
+  };
+  nodes.deliver = {
+    effect: 'deliverOrder',
+    lines: [
+      { who: 'grubb', text: 'Four rations, two cells, one of them still angry. Logged, receipted, filed.' },
+      st.fromCrate
+        ? { who: 'grubb', text: 'Forty buttons, as agreed. A Union rat fetched the rest from your crate. No fee. This once.' }
+        : { who: 'grubb', text: 'Forty buttons, as agreed. Exact change. I counted it twice. For fun.' },
+    ],
+    next: st.stepsLeft === 1 ? 'stamp' : null,
+  };
+  if (st.nextPayment > 0) {
+    const after = st.occupancy + st.nextPayment;
+    nodes.pay = {
+      effect: 'payOccupancy',
+      lines: after >= 600
+        ? [
+            { who: 'grubb', text: 'Six hundred buttons. Paid in full. I have never seen it done.' },
+            { who: 'grubb', text: 'Occupancy rights, granted. The alcove is yours. Retire whenever you like. Nobody does.' },
+          ]
+        : [{ who: 'grubb', text: `${st.nextPayment} buttons toward occupancy rights. ${after} of 600. I will make a note. I love a note.` }],
+      next: after >= 600 ? null : 'menu',
+    };
+  }
+
+  const choices: Choice[] = [];
+  if (!st.orderDone && st.orderReady) choices.push({ text: '[Hand over the supply order]', next: 'deliver' });
+  if (!st.orderDone) choices.push({ text: '[Ask about the supply order]', next: 'order' });
+  if (st.stamped && st.nextPayment > 0) choices.push({ text: `[Pay ${st.nextPayment} buttons toward occupancy]`, next: 'pay' });
+  choices.push({ text: '[Leave]', next: null });
+  nodes.menu = { lines: [{ who: 'grubb', text: 'Anything else? I have forms.' }], choices };
+
+  if (st.stepsLeft === 0 && !st.stamped) return { start: 'stamp', nodes };
+
   const lines: Line[] = [];
-  if (stepsLeft === 0) {
-    lines.push({ who: 'grubb', text: 'Every requirement met. I have been holding this stamp for some time.' });
+  if (st.stamped) {
+    lines.push({ who: 'grubb', text: 'A recognized workshop. I still look at the stamp sometimes.' });
+    if (st.occupancy < 600) lines.push({ who: 'grubb', text: `Occupancy rights: 600 buttons, paid at your leisure. ${st.occupancy} so far.` });
   } else {
-    lines.push({ who: 'grubb', text: `${stepsLeft} requirement${stepsLeft === 1 ? '' : 's'} left. I have my stamp ready. I always have my stamp ready.` });
-    if (nextStep === 'Recover a power component') {
+    lines.push({ who: 'grubb', text: `${st.stepsLeft} requirement${st.stepsLeft === 1 ? '' : 's'} left. I have my stamp ready. I always have my stamp ready.` });
+    if (st.nextStep === 'Recover a power component') {
       lines.push({ who: 'grubb', text: 'Power. The Old Pumpworks had a flywheel once. Something large is sitting on it now.' });
-    } else if (nextStep === 'Build a mushroom bed') {
+      lines.push({ who: 'grubb', text: 'Through the Fungus Cistern and down the crawl pipe. Mind the beetles. They mind you back.' });
+    } else if (st.nextStep === 'Activate the slime generator') {
+      lines.push({ who: 'grubb', text: 'Build the generator around that coil, then feed it gel. It runs on slime and spite.' });
+    } else if (st.nextStep === 'Build a mushroom bed') {
       lines.push({ who: 'grubb', text: 'Food. Glowcaps grow anywhere damp. Your alcove is very damp. This is the one compliment I will give it.' });
-    } else if (nextStep === 'Construct a scrap workbench') {
+    } else if (st.nextStep === 'Construct a scrap workbench') {
       lines.push({ who: 'grubb', text: 'A workshop needs a workbench with four legs. Three is a lean-to.' });
     }
   }
-  const asides = [
-    'Have you met Dorrit at the Hatch? Do not buy the spoons.',
-    'The Guild sent a surveyor down last year. He is still in the Cistern. Probably fine.',
-    'I once stamped a form so hard the desk needed a charter of its own.',
-    'If the Union rats bring you home, sign the receipt. They are very particular about the receipt.',
-  ];
-  lines.push({ who: 'grubb', text: asides[visit % asides.length]! });
-  return { start: 'chat', nodes: { chat: { lines } } };
+  lines.push(aside);
+  nodes.chat = { lines, choices };
+  return { start: 'chat', nodes };
 }
 
 export const DORRIT_FIRST: Script = {
@@ -174,7 +249,25 @@ export const DORRIT_LATER: Script = {
   start: 'hello',
   nodes: {
     hello: {
-      lines: [{ who: 'dorrit', text: "Still shut. Lowmarket's a long way, and he walks like a man paid by the hour." }],
+      lines: [
+        { who: 'dorrit', text: "Still shut. Lowmarket's a long way, and he walks like a man paid by the hour." },
+        { who: 'dorrit', text: 'Go and see Grubb. By the time he finishes a sentence, my merchant will be back.' },
+      ],
+    },
+  },
+};
+
+/** The Hatch opens once you've met Grubb. Every visit after this goes straight to trading. */
+export const DORRIT_OPEN: Script = {
+  start: 'hello',
+  nodes: {
+    hello: {
+      effect: 'openHatch',
+      lines: [
+        { who: 'dorrit', text: "Merchant's back from Lowmarket. Walks slow, pays fair. Mostly fair." },
+        { who: 'dorrit', text: 'Bring me anything you made. Rations, glue, cells. Every one I buy, the next is worth less.' },
+        { who: 'dorrit', text: 'Demand comes back with the Shift Bell. Like my headache.' },
+      ],
     },
   },
 };
@@ -199,6 +292,13 @@ export const BARKS = {
   guardLost: ['Paid by the hour, not the goblin.', 'Not my shift for this.'],
 } as const;
 
+/** The Pump Matron's fight, as captions under the action. */
+export const BOSS_LINES = {
+  start: 'The flywheel turns. Something under it wakes up, and is cross about it.',
+  phase2: 'She clamps her shell shut. The pipes hiss: the valves have pressure now.',
+  defeated: 'The flywheel rolls loose. The pumps sigh. So does the goblin.',
+} as const;
+
 // ---------------------------------------------------------------- narration
 
 /** Shown once, the first time you arrive somewhere. */
@@ -211,23 +311,29 @@ export const FIRST_VISIT: Partial<Record<RegionId, string>> = {
 
 // ---------------------------------------------------------------- hints
 
-export type HintId = 'move' | 'search' | 'pack' | 'fight' | 'sneak' | 'eat' | 'deposit' | 'build' | 'throw' | 'map' | 'smash';
+export type HintId = 'move' | 'search' | 'pack' | 'fight' | 'sneak' | 'eat' | 'deposit' | 'build' | 'throw' | 'map' | 'smash' | 'armor' | 'valve' | 'feed' | 'trade' | 'stink';
 
 export interface HintDef {
-  keys: readonly string[];
+  /** Rebindable actions show whatever key they're bound to. */
+  keys: readonly (Action | 'LMB')[];
   text: string;
 }
 
 export const HINTS: Record<HintId, HintDef> = {
-  move: { keys: ['W', 'A', 'S', 'D'], text: 'Move. The mouse aims.' },
-  search: { keys: ['E'], text: 'Hold to search. Rubbish is a resource.' },
-  smash: { keys: ['E'], text: 'Smash crates for timber. It is loud.' },
-  pack: { keys: ['TAB'], text: 'Your pack, the Charter, skills, and the map.' },
-  fight: { keys: ['LMB', 'SPACE'], text: 'Fire, and roll through attacks when they flash.' },
-  sneak: { keys: ['SHIFT'], text: 'Sneak. Tall rubbish and crawlspaces hide you.' },
-  eat: { keys: ['Q'], text: 'Eat something from your pack.' },
-  deposit: { keys: ['E'], text: 'At the storage crate: put your materials away.' },
-  build: { keys: ['E'], text: 'Glowing outlines are things you can build.' },
-  throw: { keys: ['F'], text: 'Throw a pebble. People look where it lands.' },
-  map: { keys: ['M'], text: 'The map shows the way home.' },
+  move: { keys: ['up', 'left', 'down', 'right'], text: 'Move. The mouse aims.' },
+  search: { keys: ['interact'], text: 'Hold to search. Rubbish is a resource.' },
+  smash: { keys: ['interact'], text: 'Smash crates for timber. It is loud.' },
+  pack: { keys: ['pack'], text: 'Your pack, the Charter, skills, and the map.' },
+  fight: { keys: ['LMB', 'roll'], text: 'Fire, and roll through attacks when they flash.' },
+  sneak: { keys: ['sneak'], text: 'Sneak. Hide in heaps or pipes, but not while watched.' },
+  eat: { keys: ['eat'], text: 'Eat something from your pack.' },
+  deposit: { keys: ['interact'], text: 'At the storage crate: put your materials away.' },
+  build: { keys: ['interact'], text: 'Glowing outlines are things you can build.' },
+  throw: { keys: ['throw'], text: 'Throw a pebble. People look where it lands.' },
+  map: { keys: ['map'], text: 'The map shows the way home.' },
+  armor: { keys: ['roll'], text: 'Armored front. Get round behind it.' },
+  valve: { keys: ['interact'], text: 'Steam blasts down. Lure her under it. Shoot the belly.' },
+  feed: { keys: ['interact'], text: 'Feed the generator Slime Gel for charge.' },
+  trade: { keys: ['interact'], text: 'Sell what you make at the Hatch.' },
+  stink: { keys: ['throw'], text: 'Stinkbrew: creatures will not enter the cloud.' },
 };

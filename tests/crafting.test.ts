@@ -66,8 +66,12 @@ describe('crafting', () => {
 });
 
 describe('building', () => {
-  it('every upgrade has a real spot, and spots list their upgrades', () => {
-    for (const id of UPGRADE_IDS) expect(upgradesAt(UPGRADES[id].spot), id).toContain(id);
+  it('every upgrade has a real spot, and spots list the ones you build (not the ones you buy)', () => {
+    for (const id of UPGRADE_IDS) {
+      const bought = (UPGRADES[id] as UpgradeDef).price !== undefined;
+      if (bought) expect(upgradesAt(UPGRADES[id].spot), id).not.toContain(id);
+      else expect(upgradesAt(UPGRADES[id].spot), id).toContain(id);
+    }
   });
 
   it('pays, records, and gives tinkering xp, once', () => {

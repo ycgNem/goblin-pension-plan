@@ -1,14 +1,15 @@
 import { audio } from '../audio/audio';
 import type { Input } from '../core/input';
 import { clamp } from '../core/math';
-import { VIEW_H, VIEW_W } from '../core/screen';
+import { BASE_H, BASE_W, setFullscreen, stageOrigin, VIEW_H, VIEW_W } from '../core/screen';
+import { settings } from '../core/settings';
 import { GOBLIN } from '../render/art/characters';
 import { Lighting, drawFrameVignette, type Light } from '../render/lighting';
 import { sprite } from '../render/sprites';
 import type { Hud } from '../ui/hud';
 import { backPressed, confirmPressed, cursor, keyHints, ListNav, UI } from '../ui/overlay';
 import { SettingsPanel } from '../ui/pause';
-import { TITLE_H, titleArt } from './backdrops';
+import { TITLE_OX, TITLE_REST_BOTTOM, titleArt } from './backdrops';
 
 export interface TitleHooks {
   hasSave(): boolean;
@@ -79,6 +80,8 @@ export class TitleScreen {
     switch (this.mode) {
       case 'press':
         if (this.t > 0.6 && (confirmPressed(input) || input.wasPressed('Escape') || input.wasMousePressed(0) || anyKey(input))) {
+          // The first key press is the browser's permission to go fullscreen.
+          if (settings.fullscreen) setFullscreen(true);
           this.mode = 'menu';
           audio.sfx('titleSting');
           audio.music('title');
@@ -135,19 +138,24 @@ export class TitleScreen {
   render(ctx: CanvasRenderingContext2D, hud: Hud): void {
     const a = titleArt();
     const pan = ease(clamp(this.panT / PAN_TIME, 0, 1));
-    const viewY = Math.round(pan * (TITLE_H - VIEW_H));
-    ctx.drawImage(a.canvas, 0, -viewY);
+    const viewY = Math.round(pan * Math.max(0, TITLE_REST_BOTTOM - VIEW_H));
+    const stage = stageOrigin();
+    // The backdrop is wider than any view: line its 480-wide middle up with the stage.
+    const dx = stage.x - TITLE_OX;
+    ctx.fillStyle = '#16120f';
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.drawImage(a.canvas, dx, -viewY);
 
     // Bells swinging in their towers.
     a.bells.forEach(([bx, by], i) => {
       const swing = Math.round(Math.sin(this.t * 1.7 + i * 1.3) * 2);
       ctx.fillStyle = '#c8a040';
-      ctx.fillRect(bx - 2 + swing, by - viewY, 5, 4);
+      ctx.fillRect(bx + dx - 2 + swing, by - viewY, 5, 4);
       ctx.fillStyle = '#8a6a20';
-      ctx.fillRect(bx - 3 + swing, by + 4 - viewY, 7, 1);
+      ctx.fillRect(bx + dx - 3 + swing, by + 4 - viewY, 7, 1);
     });
     // Stars twinkling.
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       const sx = (i * 97 + Math.floor(this.t * 0.7) * 53) % VIEW_W;
       const sy = ((i * 41 + Math.floor(this.t * 0.7) * 29) % 50) - viewY;
       ctx.fillStyle = '#fff8e0';
@@ -155,47 +163,52 @@ export class TitleScreen {
     }
     for (const j of this.junk) {
       ctx.fillStyle = j.color;
-      ctx.fillRect(Math.round(j.x), Math.round(j.y) - viewY, j.w, 1 + (j.w % 2));
+      ctx.fillRect(Math.round(j.x) + dx, Math.round(j.y) - viewY, j.w, 1 + (j.w % 2));
     }
     // The goblin by the pot, warming its hands.
-    sprite(GOBLIN).draw(ctx, 6, a.goblin.x, a.goblin.y - viewY);
+    sprite(GOBLIN).draw(ctx, 6, a.goblin.x + dx, a.goblin.y - viewY);
     if (Math.floor(this.t * 0.4) % 5 === 0 && this.t % 2.5 < 0.15) {
       ctx.fillStyle = '#1b2414';
-      ctx.fillRect(a.goblin.x + 1, a.goblin.y - viewY - 10, 2, 1);
+      ctx.fillRect(a.goblin.x + dx + 1, a.goblin.y - viewY - 10, 2, 1);
     }
     // Steam off the pot.
     for (let i = 0; i < 4; i++) {
       const k = (this.t * 0.5 + i / 4) % 1;
       ctx.fillStyle = `rgba(220, 220, 210, ${0.35 * (1 - k)})`;
-      ctx.fillRect(Math.round(a.pot.x + Math.sin(k * 6 + i) * 3), Math.round(a.pot.y - k * 22) - viewY, 2, 2);
+      ctx.fillRect(Math.round(a.pot.x + dx + Math.sin(k * 6 + i) * 3), Math.round(a.pot.y - k * 22) - viewY, 2, 2);
     }
 
+    // Lights are placed in backdrop coordinates; the view offset lines them up.
     const lights: Light[] = [
       { x: a.lantern.x, y: a.lantern.y - viewY, r: 110, color: '#ffc070', a: 0.95, flicker: 0.12, seed: 1 },
       { x: a.pot.x, y: a.pot.y + 12 - viewY, r: 50, color: '#ff8a30', a: 0.8, flicker: 0.45, seed: 2 },
-      { x: 84, y: 30 - viewY, r: 90, color: '#c8c0e0', a: 0.5 },
-      { x: 240, y: 70 - viewY, r: 260, color: '#d8a0a0', a: 0.75 },
+      { x: a.moon.x, y: a.moon.y - viewY, r: 90, color: '#c8c0e0', a: 0.5 },
+      { x: TITLE_OX + 240, y: 70 - viewY, r: 300, color: '#d8a0a0', a: 0.75 },
     ];
-    this.lighting.render(ctx, { x: 0, y: 0 }, '#3c3848', lights, this.t);
-    this.lighting.glow(ctx, { x: 0, y: 0 }, lights.slice(0, 2), this.t);
+    this.lighting.render(ctx, { x: -dx, y: 0 }, '#3c3848', lights, this.t);
+    this.lighting.glow(ctx, { x: -dx, y: 0 }, lights.slice(0, 2), this.t);
     drawFrameVignette(ctx);
 
     hud.begin();
+    hud.origin(stage.x, stage.y);
     // The logo fades in over the sky, then glides up and aside as the camera goes down.
     const logoIn = clamp((this.t - 0.5) / 1.6, 0, 1);
     const logoA = this.mode === 'press' ? logoIn : 1;
     if (this.mode === 'press') {
-      if (this.t > 2 && Math.floor(this.t * 1.6) % 2 === 0) hud.text('PRESS ANY KEY', VIEW_W / 2, VIEW_H - 50, { font: 'head', size: 8, color: UI.text, align: 'center', edge: 'outline' });
-      hud.text('Bellmarket. Above, the city. Below, everything it threw away.', VIEW_W / 2, VIEW_H - 32, { size: 7, color: UI.dim, align: 'center', edge: 'outline' });
+      // Kept in line with the backdrop (which doesn't move down for taller windows), clear of the alcove.
+      if (this.t > 2 && Math.floor(this.t * 1.6) % 2 === 0) hud.text('PRESS ANY KEY', BASE_W / 2, BASE_H - 50 - stage.y, { font: 'head', size: 8, color: UI.text, align: 'center', edge: 'outline' });
+      hud.text('Bellmarket. Above, the city. Below, everything it threw away.', BASE_W / 2, BASE_H - 32 - stage.y, { size: 7, color: UI.dim, align: 'center', edge: 'outline' });
     }
-    if (logoA > 0) drawLogo(hud.ui, VIEW_W / 2 - pan * 40, 52 - pan * 32 + (1 - logoIn) * 6, logoA);
+    if (logoA > 0) drawLogo(hud.ui, BASE_W / 2 - pan * 40, 52 - pan * 32 + (1 - logoIn) * 6, logoA);
 
     hud.setAlpha(this.mode === 'press' ? 0 : clamp((this.panT - 0.4) / 1.6, 0, 1));
     if (this.mode === 'menu' && this.panT >= PAN_TIME * 0.6) this.drawMenu(hud);
     if (this.mode === 'settings') {
-      hud.panel(28, 120, 200, 86);
-      this.settingsPanel.draw(hud, 40, 132, 176, this.t);
-      keyHints(hud, [['A/D', 'Adjust'], ['ESC', 'Back']], 40, 192);
+      const h = this.settingsPanel.height + 30;
+      const top = Math.min(120, BASE_H - h - 14);
+      hud.panel(28, top, 210, h);
+      this.settingsPanel.draw(hud, 40, top + 12, 186, this.t);
+      keyHints(hud, this.settingsPanel.hints, 40, top + h - 15);
     }
     if (this.mode === 'confirm') {
       hud.panel(28, 132, 214, 66);
@@ -209,9 +222,11 @@ export class TitleScreen {
         hud.text(label, 52, iy, { size: 8, color: on ? UI.text : UI.dim });
       });
     }
-    hud.setAlpha(1);
-    hud.text('Chapter One  ·  v0.5', 6, VIEW_H - 10, { size: 6, color: UI.faint, edge: 'outline' });
+    hud.origin(0, 0);
+    // The small print waits for the menu, so it never sits on the alcove before the camera pans.
+    hud.text('Chapter One  ·  v0.7', 6, VIEW_H - 10, { size: 6, color: UI.faint, edge: 'outline' });
     hud.text('Fonts: Pixelify Sans, Silkscreen (SIL OFL)', VIEW_W - 6, VIEW_H - 10, { size: 6, color: UI.faint, align: 'right', edge: 'outline' });
+    hud.setAlpha(1);
   }
 
   private drawMenu(hud: Hud): void {

@@ -24,7 +24,7 @@ export const TERRAIN_GLYPHS: Record<string, TileKind> = {
 };
 
 export type SpawnKind =
-  | 'player' | 'creature' | 'human' | 'node' | 'station' | 'npc' | 'access' | 'landmark' | 'valve' | 'letter';
+  | 'player' | 'creature' | 'human' | 'node' | 'station' | 'npc' | 'access' | 'landmark' | 'valve' | 'vent' | 'letter';
 
 export interface SpawnDef {
   kind: SpawnKind;
@@ -58,7 +58,11 @@ export const SPAWN_GLYPHS: Record<string, SpawnDef> = {
   t: { kind: 'node', id: 'truffleRoot', label: 'Brine Truffle root', color: '#c9a0dc' },
   p: { kind: 'node', id: 'slimePool', label: 'Slime pool', color: '#58c078' },
   k: { kind: 'node', id: 'copperMachine', label: 'Old machinery', color: '#c87533' },
+  J: { kind: 'node', id: 'reinforcedPile', label: 'Reinforced scrap pile', color: '#6a6e74' },
+
+  // The Pump Room: steam valves to turn on the Matron, and vents her mites crawl out of.
   v: { kind: 'valve', id: 'steamValve', label: 'Steam valve', color: '#d8d8d8' },
+  u: { kind: 'vent', id: 'vent', label: 'Vent', color: '#4a4e54' },
 
   // Burrow stations and build spots
   Z: { kind: 'station', id: 'bed', label: 'Sack bed', color: '#a89060' },

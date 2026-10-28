@@ -3,8 +3,8 @@ import { ITEMS } from '../src/data/items';
 import { NODES, rollYield, maxYield, type NodeDef, type NodeId } from '../src/data/nodes';
 import { REGION_IDS, HOME_REGION } from '../src/data/regions';
 import { SKILLS } from '../src/data/skills';
-import { BARKS, DORRIT_FIRST, DORRIT_LATER, FIRST_VISIT, GRUBB_FIRST, grubbChat, HINTS, INTRO, SPEAKERS, type Script } from '../src/data/story';
-import { AWARE_ICONS, BUTTON_ICON, CHECK_ICON, ITEM_ICONS, LOCK_ICON } from '../src/render/art/icons';
+import { BARKS, DORRIT_FIRST, DORRIT_LATER, DORRIT_OPEN, FIRST_VISIT, GRUBB_FIRST, grubbChat, HINTS, INTRO, SPEAKERS, type Script } from '../src/data/story';
+import { AWARE_ICONS, BUTTON_ICON, CHECK_ICON, DECOR_ICONS, ITEM_ICONS, LOCK_ICON } from '../src/render/art/icons';
 import { GOBLIN, GRUBB, HUMAN_PALETTES, humanSprite, MITE, RAT, SLIME, SLIMELET } from '../src/render/art/characters';
 import { hasProp } from '../src/render/art/props';
 import { GLYPHS } from '../src/render/paint';
@@ -18,6 +18,7 @@ describe('sprites', () => {
       ['BUTTON_ICON', BUTTON_ICON], ['CHECK_ICON', CHECK_ICON], ['LOCK_ICON', LOCK_ICON],
       ...Object.entries(HUMAN_PALETTES).map(([id, p]): [string, SpriteDef] => [`human:${id}`, humanSprite(p)]),
       ...Object.entries(ITEM_ICONS).map(([id, s]): [string, SpriteDef] => [`icon:${id}`, s]),
+      ...Object.entries(DECOR_ICONS).map(([id, s]): [string, SpriteDef] => [`decor:${id}`, s!]),
       ...Object.entries(AWARE_ICONS).map(([id, s]): [string, SpriteDef] => [`aware:${id}`, s as SpriteDef]),
     ];
     const problems = all.flatMap(([name, def]) => validateSprite(name, def));
@@ -69,8 +70,11 @@ describe('story', () => {
     ['GRUBB_FIRST', GRUBB_FIRST],
     ['DORRIT_FIRST', DORRIT_FIRST],
     ['DORRIT_LATER', DORRIT_LATER],
-    ['grubbChat(3)', grubbChat(3, 'Build a mushroom bed', 0)],
-    ['grubbChat(0)', grubbChat(0, null, 5)],
+    ['grubbChat(3 left)', grubbChat({ stepsLeft: 3, nextStep: 'Build a mushroom bed', visit: 0, orderReady: false, fromCrate: false, orderDone: false, stamped: false, occupancy: 0, nextPayment: 0 })],
+    ['grubbChat(order ready, last step)', grubbChat({ stepsLeft: 1, nextStep: 'Complete a production order', visit: 1, orderReady: true, fromCrate: true, orderDone: false, stamped: false, occupancy: 0, nextPayment: 0 })],
+    ['grubbChat(stamp due)', grubbChat({ stepsLeft: 0, nextStep: null, visit: 2, orderReady: false, fromCrate: false, orderDone: true, stamped: false, occupancy: 0, nextPayment: 0 })],
+    ['grubbChat(paying)', grubbChat({ stepsLeft: 0, nextStep: null, visit: 3, orderReady: false, fromCrate: false, orderDone: true, stamped: true, occupancy: 575, nextPayment: 25 })],
+    ['DORRIT_OPEN', DORRIT_OPEN],
   ];
 
   it('every conversation starts somewhere real and only leads to real places', () => {

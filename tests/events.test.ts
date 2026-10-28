@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SHIFT_SECONDS } from '../src/data/economy';
 import { EVENTS, EVENT_IDS, EVENT_ROTATION, eventForShift, SPAWN_SAFE_TILES, type EventId } from '../src/data/events';
 import { maxYield, NODES } from '../src/data/nodes';
+import { BARKS } from '../src/data/story';
 import { currentEvent, inZone, LiveEvent, pruneEventNodes, resolveOffscreen, storyGated, WARNING_TIME } from '../src/game/director';
 import { newSave } from '../src/game/save';
 import { Scene } from '../src/game/scene';
@@ -28,6 +29,31 @@ function reachable(map: TileMap, col: number, row: number): Set<string> {
   return seen;
 }
 
+/** The exits a mover can get to from any of the start tiles. `crawl: false` walks like a person, but may step onto exits. */
+function exitsFrom(map: TileMap, starts: readonly (readonly [number, number])[], crawl: boolean): Set<string> {
+  const seen = new Set<string>(starts.map(([c, r]) => `${c},${r}`));
+  const queue = starts.map(([c, r]) => [c, r] as [number, number]);
+  const found = new Set<string>();
+  while (queue.length) {
+    const [c, r] = queue.shift()!;
+    const exit = map.exitAt(c, r);
+    if (exit) {
+      found.add(exit.glyph);
+      continue;
+    }
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nc = c + dc;
+      const nr = r + dr;
+      const key = `${nc},${nr}`;
+      if (seen.has(key) || !map.inBounds(nc, nr) || map.isBlocked(nc, nr, 'goblin')) continue;
+      if (!crawl && map.kindAt(nc, nr) === 'crawl') continue;
+      seen.add(key);
+      queue.push([nc, nr]);
+    }
+  }
+  return found;
+}
+
 describe('event data', () => {
   it('rotates one event per shift, starting with the Beginner Contract', () => {
     expect(eventForShift(0)).toBe('beginnerContract');
@@ -43,6 +69,25 @@ describe('event data', () => {
       expect(access, `${id} region has an access point`).toBeDefined();
       const ok = reachable(map, access!.col, access!.row + 1);
       for (const [c, r] of def.route) expect(ok.has(`${c},${r}`), `${id} waypoint ${c},${r}`).toBe(true);
+    }
+  });
+
+  it('every patrol area has at least two ways out, and one of them is goblin-only', () => {
+    for (const id of EVENT_IDS) {
+      const def = EVENTS[id];
+      const map = TileMap.forRegion(def.region);
+      // Gates stay shut: the worst case.
+      const area: [number, number][] = [];
+      for (let row = 0; row < map.rows; row++) {
+        for (let col = 0; col < map.cols; col++) {
+          if (inZone(def, col, row) && !map.isBlocked(col, row, 'human')) area.push([col, row]);
+        }
+      }
+      const goblin = exitsFrom(map, area, true);
+      const person = exitsFrom(map, area, false);
+      expect(goblin.size, `${id}: ways out of the area`).toBeGreaterThanOrEqual(2);
+      // Through a crawlspace: somewhere the goblin can get to and a person can't follow.
+      expect([...goblin].filter((e) => !person.has(e)).length, `${id}: goblin-only ways out`).toBeGreaterThanOrEqual(1);
     }
   });
 
@@ -79,10 +124,19 @@ describe('the event director', () => {
     const save = newSave();
     expect(currentEvent(save)).toMatchObject({ id: 'beginnerContract', shift: 0, status: 'pending' });
     save.event.status = 'done';
+    save.flags.beginnerContractDone = true;
     save.playTime = SHIFT_SECONDS + 5;
     const ev = currentEvent(save);
     expect(ev).toMatchObject({ id: 'pipeInspection', shift: 1, status: 'pending' });
     expect(ev.startsAt).toBe(SHIFT_SECONDS + EVENTS.pipeInspection.startAt);
+  });
+
+  it('the story contract waits for the goblin: it stays the event, shift after shift, until it has played', () => {
+    const save = newSave();
+    for (let shift = 0; shift < 4; shift++) {
+      save.playTime = shift * SHIFT_SECONDS + 5;
+      expect(currentEvent(save).id).toBe('beginnerContract');
+    }
   });
 
   it('the first Beginner Contract always plays out live', () => {
@@ -168,6 +222,26 @@ describe('a live event', () => {
     expect(calls.leftovers).toBe(EVENTS.beginnerContract.leftovers.length);
     expect(ev.phase).toBe('over');
     expect(scene.humans.length).toBe(0);
+  });
+
+  it('a party that finds the nest already empty says so; one that clears it cheers', () => {
+    const barks = (empty: boolean): Set<string> => {
+      const { scene, ev } = live('beginnerContract');
+      // Gone before the party gets there (taken out of the scene, so nothing splits).
+      if (empty) scene.creatures.splice(0);
+      const said = new Set<string>();
+      for (let t = 0; t < 120; t += 1 / 60) {
+        scene.update(1 / 60, { x: 2 * TILE, y: 8 * TILE, alive: true, hidden: true });
+        ev.update(1 / 60);
+        for (const b of scene.bubbles) said.add(b.text);
+      }
+      return said;
+    };
+    const empty = barks(true);
+    expect(BARKS.nestEmpty.some((l) => empty.has(l))).toBe(true);
+    expect(BARKS.contractDone.some((l) => empty.has(l))).toBe(false);
+    const cleared = barks(false);
+    expect(BARKS.contractDone.some((l) => cleared.has(l))).toBe(true);
   });
 
   it('the inspector opens the sluice while he works and shuts it after', () => {

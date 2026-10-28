@@ -17,6 +17,9 @@ import {
   withdraw,
 } from '../src/game/inventory';
 import { newSave } from '../src/game/save';
+import { Scene } from '../src/game/scene';
+import { TILE } from '../src/world/tiles';
+import { room, seededRng } from './helpers';
 
 describe('the pack', () => {
   it('tops up existing stacks before opening new slots', () => {
@@ -62,6 +65,30 @@ describe('the pack', () => {
     ];
     expect(removeFromPack(save, 'scrap', 3)).toBe(3);
     expect(save.pack).toEqual([{ item: 'scrap', qty: 19 }]);
+  });
+});
+
+describe('things on the floor', () => {
+  it('a dropped stack stays put until the goblin walks away, then comes back to the pack like anything else', () => {
+    const save = newSave();
+    let got = 0;
+    const scene = new Scene('galleries', room(20, 6), save, {
+      hurtPlayer: () => false,
+      creatureHit: () => {},
+      creatureKilled: () => {},
+      pickup: (_item, qty) => {
+        got += qty;
+        return qty;
+      },
+    }, seededRng(1));
+    const at = { x: 5 * TILE, y: 3 * TILE };
+    scene.placePickup('bone', 4, at.x, at.y + 4, true);
+    for (let i = 0; i < 120; i++) scene.update(1 / 60, { ...at, alive: true });
+    expect(got).toBe(0);
+    for (let i = 0; i < 30; i++) scene.update(1 / 60, { x: at.x + 120, y: at.y, alive: true });
+    for (let i = 0; i < 120; i++) scene.update(1 / 60, { ...at, alive: true });
+    expect(got).toBe(4);
+    expect(scene.pickups).toEqual([]);
   });
 });
 

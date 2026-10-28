@@ -4,7 +4,7 @@ import { ITEMS, type ItemBag, type ItemId } from '../data/items';
 import { RECIPES, type RecipeDef, type RecipeId, type StationId } from '../data/recipes';
 import { SKILLS } from '../data/skills';
 import { UPGRADES, type UpgradeDef, type UpgradeId } from '../data/upgrades';
-import { canBuild, canCraft, recipeLocks, STATION_NEEDS, stationRecipes, upgradeLocks, upgradesAt } from '../game/crafting';
+import { canBuild, canCraft, gelsToFill, GENERATOR, recipeLocks, STATION_NEEDS, stationRecipes, upgradeLocks, upgradesAt } from '../game/crafting';
 import { haveCount, packSlots } from '../game/inventory';
 import { capacity, jobProgress, jobsAt } from '../game/production';
 import type { ProductionStation, SaveData, Tracked } from '../game/save';
@@ -109,7 +109,8 @@ export class StationOverlay implements Overlay {
     hud.panel(x, y, w, h);
     heading(hud, this.title.toUpperCase(), x + 10, y + 8, w - 20);
     if (this.hasTabs) {
-      const tabs: ['make' | 'build', string][] = [['make', isTimed(this.station) ? 'GROW' : 'MAKE'], ['build', 'BUILD']];
+      const verb = this.station === 'mushroomBed' ? 'GROW' : this.station === 'dryingRack' ? 'DRY' : this.station === 'boneGrinder' ? 'GRIND' : 'MAKE';
+      const tabs: ['make' | 'build', string][] = [['make', verb], ['build', 'BUILD']];
       let tx = x + w - 10;
       for (const [id, label] of [...tabs].reverse()) {
         const tw = Math.ceil(hud.measure(label, 7, 'head')) + 10;
@@ -191,6 +192,15 @@ export class StationOverlay implements Overlay {
       hud.text(label, cx + 12, cy + 1, { size: 7, color: have >= need ? UI.good : UI.bad });
       cx += lw;
     }
+    if (r?.charge) {
+      const label = `${this.save.charge}/${r.charge} Charge`;
+      if (cx + hud.measure(label, 7) + 18 > x + w) {
+        cx = x;
+        cy += 12;
+      }
+      drawBolt(hud, cx + 2, cy);
+      hud.text(label, cx + 12, cy + 1, { size: 7, color: this.save.charge >= r.charge ? UI.good : UI.bad });
+    }
     cy += 15;
     const locks = r ? recipeLocks(this.save, e.id as RecipeId) : upgradeLocks(this.save, e.id as UpgradeId);
     if (locks.length > 0 && !(u && this.save.upgrades.includes(e.id as UpgradeId))) {
@@ -224,6 +234,89 @@ export class StationOverlay implements Overlay {
       hud.text(j.done ? 'Ready' : formatTime(j.left), x + w, jy, { size: 7, color: j.done ? UI.good : UI.dim, align: 'right' });
     });
     if (jobs.length === 0) hud.text('Idle. Give it something to do.', x, y + 10, { size: 7, color: UI.dim });
+  }
+}
+
+/** A little lightning bolt: generator charge. */
+export function drawBolt(hud: Hud, x: number, y: number): void {
+  hud.fill(x + 3, y, 3, 1, '#0a0a08');
+  hud.fill(x + 2, y + 1, 3, 2, '#a8f8a0');
+  hud.fill(x + 1, y + 3, 5, 1, '#58c078');
+  hud.fill(x + 3, y + 4, 2, 2, '#a8f8a0');
+  hud.fill(x + 2, y + 6, 2, 2, '#58c078');
+}
+
+// ---------------------------------------------------------------- the Slime Generator
+
+export interface GeneratorHooks {
+  feed(gels: number): void;
+  sound(id: 'uiMove' | 'uiSelect' | 'uiDenied' | 'uiBack'): void;
+}
+
+/** Feed the generator Slime Gel. One gel is five charge; it holds twenty. */
+export class GeneratorOverlay implements Overlay {
+  readonly pauses = true;
+  done = false;
+  private readonly nav = new ListNav(2);
+  private t = 0;
+
+  constructor(private readonly save: SaveData, private readonly hooks: GeneratorHooks) {}
+
+  private get room(): number {
+    return gelsToFill(this.save);
+  }
+
+  update(dt: number, input: Input): void {
+    this.t += dt;
+    if (backPressed(input) || (this.t > 0.2 && input.wasPressed('Tab'))) {
+      this.hooks.sound('uiBack');
+      this.done = true;
+      return;
+    }
+    const picked = this.t > 0.15 ? this.nav.update(input, () => this.hooks.sound('uiMove')) : null;
+    if (picked === null) return;
+    const gel = haveCount(this.save, 'slimeGel', true);
+    if (this.room <= 0 || gel <= 0) {
+      this.hooks.sound('uiDenied');
+      return;
+    }
+    this.hooks.feed(picked === 0 ? 1 : this.room);
+  }
+
+  draw(hud: Hud, time: number): void {
+    const w = 260;
+    const h = 132;
+    const x = Math.round((VIEW_W - w) / 2);
+    const y = Math.round((VIEW_H - h) / 2) - 8;
+    hud.fade(0.35);
+    hud.panel(x, y, w, h);
+    heading(hud, 'SLIME GENERATOR', x + 10, y + 8, w - 20);
+    const charge = this.save.charge;
+    drawBolt(hud, x + 12, y + 28);
+    hud.text(`CHARGE  ${charge}/${GENERATOR.capacity}`, x + 24, y + 28, { font: 'head', size: 7, color: charge > 0 ? '#a8f8a0' : UI.dim });
+    // Four cells, one per gel.
+    const cells = GENERATOR.capacity / GENERATOR.perGel;
+    for (let i = 0; i < cells; i++) {
+      const filled = Math.min(1, Math.max(0, (charge - i * GENERATOR.perGel) / GENERATOR.perGel));
+      hud.bar(x + 12 + i * 58, y + 40, 54, 9, filled, '#58c078', '#142a1e');
+    }
+    const gel = haveCount(this.save, 'slimeGel', true);
+    hud.icon('slimeGel', x + 12, y + 56);
+    hud.text(`${gel} Slime Gel at hand (pack and storage)`, x + 26, y + 57, { size: 7, color: gel > 0 ? UI.text : UI.bad });
+    this.nav.beginPlacing();
+    const next = Math.min(GENERATOR.perGel, GENERATOR.capacity - charge);
+    const rows = [`Feed 1 gel  (+${next} charge)`, `Fill it up  (${Math.min(this.room, gel)} gel)`];
+    rows.forEach((label, i) => {
+      const ry = y + 74 + i * 15;
+      this.nav.place({ x: x + 8, y: ry - 3, w: w - 16, h: 15 });
+      const on = i === this.nav.index;
+      if (on) cursor(hud, x + 12, ry + 2, time);
+      const able = this.room > 0 && gel > 0;
+      hud.text(label, x + 24, ry, { size: 8, color: !able ? UI.faint : on ? UI.text : UI.dim });
+    });
+    const note = this.room <= 0 ? 'Full. It hums smugly.' : 'Powers Slime Cells, the Slime Shot mod, and the Bone Grinder.';
+    hud.text(note, x + 12, y + h - 30, { size: 7, color: UI.dim });
+    keyHints(hud, [['E', 'Feed'], ['ESC', 'Close']], x + 10, y + h - 17);
   }
 }
 

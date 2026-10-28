@@ -1,4 +1,5 @@
 import type { Controls } from '../core/input';
+import { keyFor } from '../core/keys';
 import { approach, normalize } from '../core/math';
 import { CHARGED_SHOT, PLAYER } from '../data/combat';
 import { moveBody, type Body } from '../world/collision';
@@ -84,7 +85,7 @@ export class Player implements Body {
     this.rollCd = Math.max(0, this.rollCd - dt);
     this.rollBuffer = Math.max(0, this.rollBuffer - dt);
     this.stun = Math.max(0, this.stun - dt);
-    if (input.wasPressed('Space')) this.rollBuffer = PLAYER.roll.buffer;
+    if (input.wasPressed(keyFor('roll'))) this.rollBuffer = PLAYER.roll.buffer;
     this.aim = Math.atan2(aimY - this.y, aimX - this.x);
 
     const axis = input.moveAxis();
@@ -116,7 +117,8 @@ export class Player implements Body {
       this.vy = this.rollY * PLAYER.roll.speed;
       actions.rolled = true;
     } else {
-      this.sneaking = input.isDown('ShiftLeft') || input.isDown('ShiftRight');
+      const sneak = keyFor('sneak');
+      this.sneaking = input.isDown(sneak) || (sneak.startsWith('Shift') && (input.isDown('ShiftLeft') || input.isDown('ShiftRight')));
       const onSludge = map.kindAt(Math.floor(this.x / TILE), Math.floor(this.y / TILE)) === 'sludge';
       const speed = (this.sneaking ? SNEAK_SPEED : WALK_SPEED) * (onSludge ? SLUDGE_FACTOR : 1);
       const rate = moving ? ACCEL : FRICTION;

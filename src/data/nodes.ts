@@ -61,6 +61,11 @@ export const NODES = {
     yields: [{ item: 'slimeGel', min: 2, max: 3 }],
     art: 'slimePool', usedVariant: 'scooped', light: { r: 30, color: '#58c078', a: 0.5 },
   },
+  reinforcedPile: {
+    name: 'Reinforced scrap pile', verb: 'Pry open', skill: 'scavenging', xp: 12, time: 1.6, requires: { skill: 'scavenging', level: 4 }, bonusSkill: 'scavenging',
+    yields: [{ item: 'scrap', min: 3, max: 5 }, { item: 'copper', min: 1, max: 1, chance: 0.4 }, { item: 'cloth', min: 1, max: 1, chance: 0.3 }],
+    art: 'reinforcedPile', usedVariant: 'searched',
+  },
   copperMachine: {
     name: 'Old machinery', verb: 'Strip', skill: 'scavenging', xp: 14, time: 1.8, requires: { skill: 'scavenging', level: 3 },
     yields: [{ item: 'copper', min: 1, max: 2 }, { item: 'scrap', min: 1, max: 2 }],

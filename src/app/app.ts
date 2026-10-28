@@ -1,7 +1,8 @@
 import { audio } from '../audio/audio';
 import type { Input } from '../core/input';
 import { clamp } from '../core/math';
-import type { Screen } from '../core/screen';
+import { isFullscreen, setFullscreen, stageOrigin, type Screen } from '../core/screen';
+import { saveSettings, settings } from '../core/settings';
 import { Game } from '../game/game';
 import { clearSave, hasSave, loadSave, newSave } from '../game/save';
 import { Hud } from '../ui/hud';
@@ -82,6 +83,16 @@ export class App {
 
   update(dt: number): void {
     this.fadeT += dt;
+    // Alt+Enter flips fullscreen anywhere, like most PC games.
+    if (this.input.wasPressed('Enter') && (this.input.isDown('AltLeft') || this.input.isDown('AltRight'))) {
+      settings.fullscreen = !isFullscreen();
+      saveSettings();
+      setFullscreen(settings.fullscreen);
+      return;
+    }
+    // Screens laid out at the base size sit on a centered stage; the game uses the whole view.
+    const o = this.stage.kind === 'game' ? { x: 0, y: 0 } : stageOrigin();
+    this.input.setOrigin(o.x, o.y);
     switch (this.stage.kind) {
       case 'title':
         this.title.update(dt);
@@ -98,6 +109,7 @@ export class App {
 
   render(fps: number): void {
     const ctx = this.screen.game;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     switch (this.stage.kind) {
       case 'title':
         this.title.render(ctx, this.hud);
@@ -112,5 +124,6 @@ export class App {
     }
     const k = clamp(1 - this.fadeT / FADE_IN, 0, 1);
     if (k > 0) this.hud.fade(k);
+    this.screen.present();
   }
 }

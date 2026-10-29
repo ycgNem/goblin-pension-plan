@@ -13,6 +13,8 @@ export interface SpriteDef {
 
 export interface DrawOptions {
   flip?: boolean;
+  /** Mirror top to bottom (sheets only), for creatures seen from straight above. */
+  flipY?: boolean;
   /** Draw as a solid silhouette of this color (hit flash, telegraph blink). */
   silhouette?: string;
   alpha?: number;

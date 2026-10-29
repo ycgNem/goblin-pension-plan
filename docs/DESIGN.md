@@ -34,7 +34,7 @@ These are deliberate changes or additions to the source brief:
 | **No game engine.** Strict TypeScript, Vite, raw Canvas 2D, and Vitest for logic tests. | The brief says to avoid unnecessary dependencies, and a top-down tile game doesn't need an engine. |
 | **The Guild survey.** The story's clock: the Adventurers' Guild has listed the goblin's alcove as "suitable for beginners". A chartered burrow is a premises, and premises aren't content (Grubb's bylaw nine). | The Charter needed stakes. Now every wall you patch is also a legal argument, and the villain is paperwork, not a dragon. |
 | **A presented game, not a prototype.** A title screen, an illustrated intro, a chapter card, a wake-up, dialogue with portraits, music, and lighting. | First impressions decide whether a small game feels established. The opening should feel authored from the first second. |
-| **Art drawn in code** instead of sprite sheets: string sprites for characters and icons, a small pixel painter for props, portraits, and backdrops. | One consistent style, no asset pipeline, tiny builds, and sprites the tests can check. |
+| **Generated pixel art** (from the art overhaul, `docs/ART_PLAN.md`), replacing the original art drawn in code. Characters, terrain, props, icons, and portraits come from PixelLab under one style guide; effects, telegraphs, and lighting stay code. | The code art proved the game; it couldn't make it look established. A small dependency-free pipeline keeps the old benefits: one style, a tested manifest, and a build that's still small. |
 
 ---
 

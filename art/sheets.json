@@ -1,0 +1,205 @@
+{
+  "sheets": {
+    "goblin": {
+      "src": "goblin24",
+      "anchorFrom": "idle_s",
+      "clips": {
+        "idle_s": "idle_s", "idle_n": "idle_n", "idle_e": "idle_e",
+        "walk_s": "walk_s", "walk_n": "walk_n", "walk_e": "walk_e",
+        "sneak_s": "sneak_s", "sneak_n": "sneak_n", "sneak_e": "sneak_e",
+        "roll_s": "roll_s", "roll_n": "roll_n", "roll_e": "roll_e",
+        "ko": "knockout"
+      }
+    },
+    "paladin": {
+      "src": "paladin",
+      "anchorFrom": "idle_s",
+      "clips": {
+        "idle_s": "idle_s", "idle_n": "idle_n", "idle_e": "idle_e",
+        "walk_s": "walk_s", "walk_n": "walk_n", "walk_e": "walk_e",
+        "attack_s": "attack_s", "attack_n": "attack_n", "attack_e": "attack_e"
+      }
+    },
+    "apprentice": {
+      "src": "apprentice",
+      "anchorFrom": "idle_s",
+      "clips": {
+        "idle_s": "idle_s", "idle_n": "idle_n", "idle_e": "idle_e",
+        "walk_s": "walk_s", "walk_n": "walk_n", "walk_e": "walk_e",
+        "attack_s": "attack_s", "attack_n": "attack_n", "attack_e": "attack_e"
+      }
+    },
+    "dorrit": { "src": "dorrit", "anchorFrom": "idle_s", "clips": { "idle_s": "idle_s" } },
+    "grubb": { "src": "grubb", "anchorFrom": "idle_s", "clips": { "idle_s": "idle_s" } },
+    "ranger": {
+      "src": "ranger",
+      "anchorFrom": "idle_s",
+      "clips": {
+        "idle_s": "idle_s", "idle_n": "idle_n", "idle_e": "idle_e",
+        "walk_s": "walk_s", "walk_n": "walk_n", "walk_e": "walk_e"
+      }
+    },
+    "inspector": {
+      "src": "inspector",
+      "anchorFrom": "idle_s",
+      "clips": {
+        "idle_s": "idle_s", "idle_n": "idle_n", "idle_e": "idle_e",
+        "walk_s": "walk_s", "walk_n": "walk_n", "walk_e": "walk_e"
+      }
+    },
+    "guard": {
+      "src": "guard",
+      "anchorFrom": "idle_s",
+      "clips": {
+        "idle_s": "idle_s", "idle_n": "idle_n", "idle_e": "idle_e",
+        "walk_s": "walk_s", "walk_n": "walk_n", "walk_e": "walk_e"
+      }
+    },
+    "rat": { "src": "rat", "clips": { "run": "run" } },
+    "slime": { "src": "slime", "clips": { "idle": "idle" } },
+    "slimelet": { "src": "slimelet", "clips": { "idle": "base" } },
+    "mite": { "src": "mite", "anchor": "center", "clips": { "run": "run" } },
+    "beetle": {
+      "src": "beetle",
+      "anchor": "center",
+      "clips": {
+        "idle_s": "rotations/south", "idle_se": "rotations/south-east", "idle_e": "rotations/east",
+        "idle_ne": "rotations/north-east", "idle_n": "rotations/north",
+        "walk_s": "walk_s", "walk_se": "walk_se", "walk_e": "walk_e", "walk_ne": "walk_ne", "walk_n": "walk_n",
+        "flipped": "flipped"
+      }
+    },
+    "matron": {
+      "src": "matron",
+      "anchor": "center",
+      "clips": {
+        "idle_s": "rotations/south", "idle_se": "rotations/south-east", "idle_e": "rotations/east",
+        "idle_ne": "rotations/north-east", "idle_n": "rotations/north",
+        "walk_s": "walk_s", "walk_se": "walk_se", "walk_e": "walk_e", "walk_ne": "walk_ne", "walk_n": "walk_n",
+        "flipped": "flipped"
+      }
+    }
+  },
+  "tilesets": {
+    "galleries_floor": { "src": "tilesets/galleries_floor1" },
+    "galleries_walls": { "src": "tilesets/galleries_test1", "fill": "clear" },
+    "burrow_floor": { "src": "tilesets/burrow_floor2" },
+    "burrow_walls": { "src": "tilesets/burrow_walls3", "fill": "clear", "tint": [0.78, 0.76, 0.74] },
+    "cistern_floor": { "src": "tilesets/cistern_floor1" },
+    "cistern_walls": { "src": "tilesets/cistern_walls2", "fill": "clear" },
+    "cistern_water": { "src": "tilesets/cistern_water1" },
+    "pumpworks_floor": { "src": "tilesets/pumpworks_floor1", "tint": [1.4, 1.32, 1.25] },
+    "pumpworks_walls": { "src": "tilesets/pumpworks_walls2", "fill": "clear", "tint": [1.4, 1.32, 1.25] },
+    "coop_floor": { "src": "tilesets/coop_floor1", "desaturate": 0.45, "tint": [0.78, 0.68, 0.6] },
+    "coop_walls": { "src": "tilesets/coop_walls2", "fill": "clear", "desaturate": 0.45, "tint": [0.78, 0.68, 0.6] }
+  },
+  "props": {
+    "junkPile": { "variants": { "": "props/junkPile/base", "searched": "props/junkPile/searched" } },
+    "crate": { "variants": { "": "props/crate/base", "smashed": "props/crate/smashed", "smashedLoot": "props/smashedCrate/base" } },
+    "smashedCrate": { "variants": { "": "props/smashedCrate/base" } },
+    "glowcapPatch": { "variants": { "": "props/glowcapPatch/base", "harvested": "props/glowcapPatch/harvested" } },
+    "truffleRoot": { "variants": { "": "props/truffleRoot/base", "harvested": "props/truffleRoot/harvested" } },
+    "slimePool": { "variants": { "": "props/slimePool/base", "scooped": "props/slimePool/scooped" } },
+    "gelPuddle": { "variants": { "": "props/gelPuddle/base" } },
+    "clothBundle": { "variants": { "": "props/clothBundle/base", "searched": "props/clothBundle/searched" } },
+    "bonePile": { "variants": { "": "props/bonePile/base", "searched": "props/bonePile/searched" } },
+    "reinforcedPile": { "variants": { "": "props/reinforcedPile/base", "searched": "props/reinforcedPile/searched" } },
+    "copperMachine": { "variants": { "": "props/copperMachine/base", "stripped": "props/copperMachine/stripped" } },
+    "steamValve": { "variants": { "": "props/steamValve/base", "ready": "props/steamValve/ready", "spent": "props/steamValve/base" } },
+    "vent": { "variants": { "": "props/vent/base" } },
+    "flywheelHub": { "variants": { "": "props/flywheelHub/base" } },
+    "access": { "variants": { "": "props/access/base" } },
+    "letter": { "variants": { "": "props/letter/base" } },
+    "heap": { "variants": { "": "props/heap/base", "coop": "props/heap/coop", "barrels": "props/heap/barrels" } },
+    "bed": { "variants": { "": "props/bed/base", "mattress": "props/bed/mattress" } },
+    "grandChair": { "variants": { "": "props/grandChair/base" } },
+    "storage": { "variants": { "": "props/storage/base", "full": "props/storage/full" } },
+    "pot": { "variants": { "": "props/pot/base", "pan": "props/pot/pan" } },
+    "bowls": { "variants": { "": "props/bowls/base", "two": "props/bowls/two" } },
+    "workbench": { "variants": { "": "props/workbench/base", "repaired": "props/workbench/repaired" } },
+    "mushroomBed": {
+      "variants": {
+        "": "props/mushroomBed/base", "sprouts": "props/mushroomBed/sprouts",
+        "growing": "props/mushroomBed/growing", "ready": "props/mushroomBed/ready"
+      }
+    },
+    "dryingRack": { "variants": { "": "props/dryingRack/base", "loaded": "props/dryingRack/loaded" } },
+    "boneGrinder": { "variants": { "": "props/boneGrinder/base" } },
+    "generator": { "variants": { "": "props/generator/base", "on": "props/generator/on" } },
+    "lantern": { "variants": { "": "props/lantern/base", "candle": "props/lantern/candle" } },
+    "sign": { "variants": { "": "props/sign/base", "definitely": "props/sign/definitely" }, "board": [3, 8, 38, 12] },
+    "wallClock": { "variants": { "": "props/wallClock/base" } },
+    "waxFern": { "variants": { "": "props/waxFern/base" } },
+    "estPlaque": { "variants": { "": "props/estPlaque/base" }, "board": [1, 1, 17, 7] },
+    "desk": { "variants": { "": "props/desk/base" } },
+    "hatch": { "variants": { "": "props/hatch/base" }, "board": [6, 2, 12, 10] },
+    "board": { "variants": { "": "props/board/base" }, "board": [14, 4, 4, 6] },
+    "queueRope": { "variants": { "": "props/queueRope/base" } },
+    "sconce": { "variants": { "": "props/sconce/base" } },
+    "chandelier": { "variants": { "": "props/chandelier/base" } },
+    "founderStatue": { "variants": { "": "props/founderStatue/base" } },
+    "piston": { "variants": { "": "props/piston/base" } }
+  },
+  "portraits": {
+    "grubb": { "src": "portraits/grubb", "mouth": [21, 27, 5], "eyes": [[20, 22, 4, 2], [28, 22, 2, 2]], "lid": "#85915c" },
+    "dorrit": { "src": "portraits/dorrit", "mouth": [22, 28, 5], "eyes": [[19, 22, 4, 2], [27, 22, 3, 2]], "lid": "#eaab75" },
+    "unionRat": { "src": "portraits/unionRat", "mouth": [21, 30, 4], "eyes": [[19, 21, 3, 2]], "lid": "#634c47" },
+    "aldous": { "src": "portraits/aldous", "mouth": [21, 29, 5], "eyes": [[18, 22, 3, 2], [26, 22, 3, 2]], "lid": "#f5b98f" },
+    "wren": { "src": "portraits/wren", "mouth": [22, 28, 4], "eyes": [[19, 21, 4, 2], [25, 21, 4, 2]], "lid": "#e2896a" },
+    "pemberton": { "src": "portraits/pemberton", "mouth": [22, 29, 3], "eyes": [[18, 25, 4, 3], [25, 25, 3, 2]], "lid": "#f5b98f" },
+    "hobb": { "src": "portraits/hobb", "mouth": [21, 29, 5], "eyes": [[17, 24, 3, 2], [25, 24, 3, 2]], "lid": "#f5b98f" },
+    "guard": { "src": "portraits/guard", "mouth": [20, 28, 5], "eyes": [[18, 21, 3, 2], [25, 21, 3, 2]], "lid": "#cc9970" }
+  },
+  "icons": {
+    "scrap": "icons/scrap",
+    "timber": "icons/timber",
+    "glowcap": "icons/glowcap",
+    "brineTruffle": "icons/brineTruffle",
+    "bone": "icons/bone",
+    "slimeGel": "icons/slimeGel",
+    "cloth": "icons/cloth",
+    "copper": "icons/copper",
+    "slimeGlue": "icons/slimeGlue",
+    "slimeCell": "icons/slimeCell",
+    "fertilizer": "icons/fertilizer",
+    "truffleSpores": "icons/truffleSpores",
+    "glowcapSkewer": "icons/glowcapSkewer",
+    "driedRation": "icons/driedRation",
+    "truffleStew": "icons/truffleStew",
+    "bottle": "icons/bottle",
+    "stinkbrew": "icons/stinkbrew",
+    "bandolier": "icons/bandolier",
+    "modNailSpread": "icons/modNailSpread",
+    "modSlimeShot": "icons/modSlimeShot",
+    "patchedSatchel": "icons/patchedSatchel",
+    "flywheelCoil": "icons/flywheelCoil",
+    "wallClock": "icons/wallClock",
+    "waxFern": "icons/waxFern",
+    "gildedPlaque": "icons/gildedPlaque"
+  },
+  "backdrops": {
+    "title": {
+      "src": ["backdrops/title_sky", "backdrops/title_under"], "ox": 160, "rest": 380, "ambient": "#a8a0b8",
+      "marks": {
+        "moon": [293, 27], "bell0": [35, 47, 11, 15], "bell1": [244, 47, 10, 14], "bell2": [581, 41, 10, 15],
+        "chute": [337, 140, 312, 28], "light": [523, 252], "goblin": [512, 352],
+        "pot": [534, 352], "bed": [476, 356], "storage": [590, 350], "sign": [562, 324]
+      }
+    },
+    "city": {
+      "src": "backdrops/city", "h": 270, "ambient": "#b0a8c0",
+      "marks": { "moon": [410, 39], "bell0": [64, 87, 15, 20], "bell1": [210, 77, 18, 22], "bell2": [436, 86, 16, 21] }
+    },
+    "chute": { "src": "backdrops/chute", "h": 270, "ambient": "#b0a8c0", "marks": { "chute": [283, 84, 214, 60], "sky": [283, 66], "glow": [283, 248] } },
+    "heroes": { "src": "backdrops/heroes", "h": 270, "ambient": "#b0a8c0", "marks": { "eyes": [17, 189], "party": [380, 218], "torch": [122, 52] } },
+    "alcove": {
+      "src": "backdrops/alcove", "h": 270, "ambient": "#b0a8c0",
+      "marks": {
+        "goblin": [282, 221], "hole0": [245, 125], "hole1": [317, 133],
+        "drip0": [247, 152, 222], "drip1": [317, 160, 222], "drip2": [193, 100, 218]
+      }
+    },
+    "notice": { "src": "backdrops/notice", "h": 270, "ambient": "#c8b8a8", "marks": { "light0": [40, 70], "light1": [441, 68] } },
+    "charter": { "src": "backdrops/charter", "h": 270, "ambient": "#c8b8a8", "marks": { "light0": [112, 40], "light1": [362, 36] } }
+  }
+}

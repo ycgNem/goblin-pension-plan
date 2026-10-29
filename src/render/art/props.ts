@@ -1,7 +1,11 @@
 import { art, Painter } from '../paint';
+import { artImage } from './assets';
+import type { PropArtDef } from './sheet-types';
+import { PROP_ART } from './sheets.gen';
 
 // Props: scavenging nodes, Burrow stations in each of their states, Cooperative furniture,
-// landmarks, and hiding heaps. Painted procedurally, outlined, and cached per variant.
+// landmarks, and hiding heaps. Generated art from props.png where a state has it; otherwise
+// painted procedurally, outlined, and cached per variant.
 // Each prop has an anchor: the pixel that sits on its spot in the world (usually the base).
 
 interface PropDef {
@@ -10,6 +14,8 @@ interface PropDef {
   ax: number;
   ay: number;
   draw(p: Painter, variant: string): void;
+  /** Lettering over the generated art, inside its board (generated art never carries text). */
+  label?(p: Painter, variant: string, x: number, y: number, w: number, h: number): void;
 }
 
 const WOOD = { hi: '#c08c58', base: '#8a5e34', lo: '#5e3e22', dark: '#3e2814' };
@@ -33,6 +39,12 @@ function mushroom(p: Painter, x: number, base: number, h: number, r: number): vo
   p.vline(x + 1, base - h, h, '#a8a080');
   p.ball(x + 1, base - h, r, Math.max(1.5, r * 0.65), '#a6e05a', '#d8ff8a', '#5f9636');
   if (r >= 2.5) p.px(x, base - h - 1, '#f4ffd0');
+}
+
+/** Lines of the 3x5 font, centered in a box. */
+function letter(p: Painter, lines: readonly string[], x: number, y: number, w: number, h: number, c: string): void {
+  const top = y + Math.floor((h - (lines.length * 6 - 1)) / 2);
+  lines.forEach((line, i) => p.text(line, x + Math.floor((w - Painter.textWidth(line)) / 2), top + i * 6, c));
 }
 
 function bone(p: Painter, x0: number, y0: number, x1: number, y1: number): void {
@@ -666,6 +678,7 @@ const PROPS: Record<string, PropDef> = {
       }
       p.outline();
     },
+    label: (p, v, x, y, w, h) => (v === 'definitely' ? letter(p, ['DEFINITELY', 'NOT A LAIR'], x, y, w, h, INK) : letter(p, ['NOT A LAIR'], x, y, w, h, PAPER)),
   },
 
   wallClock: {
@@ -705,6 +718,7 @@ const PROPS: Record<string, PropDef> = {
       p.text('EST. NOW', 13 - Math.floor(Painter.textWidth('EST. NOW') / 2), 2, INK);
       p.outline();
     },
+    label: (p, _v, x, y, w, h) => letter(p, ['EST.'], x, y, w, h, INK),
   },
 
   // ------------------------------------------------------------- Cooperative
@@ -767,6 +781,11 @@ const PROPS: Record<string, PropDef> = {
       p.rect(19, 13, 8, 4, '#e8d0d0');
       p.hline(20, 15, 6, '#a04040');
       p.outline();
+    },
+    // On the generated board, the board rect is the Guild's notice: just its seal.
+    label(p, _v, x, y, w, h) {
+      p.rect(x + w - 2, y + h - 2, 2, 2, '#c03030');
+      p.px(x + w - 2, y + h - 2, '#e05050');
     },
   },
   queueRope: {
@@ -888,7 +907,45 @@ export function hasProp(id: string): boolean {
 export function propArt(id: string, variant = ''): PropArt {
   const def = PROPS[id];
   if (!def) throw new Error(`No prop art '${id}'`);
-  return { canvas: art(`prop:${id}:${variant}`, def.w, def.h, (p) => def.draw(p, variant)), ax: def.ax, ay: def.ay };
+  return generated(id, variant, def) ?? { canvas: art(`prop:${id}:${variant}`, def.w, def.h, (p) => def.draw(p, variant)), ax: def.ax, ay: def.ay };
+}
+
+/** The generated art for a prop state, if it has some and props.png has loaded. */
+function generatedDef(id: string, variant: string): PropArtDef | null {
+  const gen: PropArtDef | undefined = (PROP_ART as Record<string, PropArtDef>)[id];
+  return gen && variant in gen.variants && artImage('props.png') ? gen : null;
+}
+
+/** Without an anchor of its own, generated art sits where the hand-drawn prop's anchor did, proportionally. */
+function generatedAnchor(def: PropDef, gen: PropArtDef): readonly [number, number] {
+  return gen.anchor ?? [Math.round((def.ax / def.w) * gen.w), gen.h - Math.round(((def.h - def.ay) / def.h) * gen.h)];
+}
+
+/** A prop state cut from props.png and lettered, or null to paint it instead. */
+function generated(id: string, variant: string, def: PropDef): PropArt | null {
+  const gen = generatedDef(id, variant);
+  const img = artImage('props.png');
+  if (!gen || !img) return null;
+  const [sx, sy] = gen.variants[variant]!;
+  const canvas = art(`propgen:${id}:${variant}`, gen.w, gen.h, (p) => {
+    p.ctx.drawImage(img, sx, sy, gen.w, gen.h, 0, 0, gen.w, gen.h);
+    if (def.label && gen.board) def.label(p, variant, ...gen.board);
+  });
+  const [ax, ay] = generatedAnchor(def, gen);
+  return { canvas, ax, ay };
+}
+
+/**
+ * Where code draws into a prop's generated art (a sign's lettering, the hatch window), relative to
+ * the prop's anchor. Null when the prop is painted, or its art has no board.
+ */
+export function propBoard(id: string, variant = ''): { x: number; y: number; w: number; h: number } | null {
+  const def = PROPS[id];
+  const gen = generatedDef(id, variant);
+  if (!def || !gen?.board) return null;
+  const [ax, ay] = generatedAnchor(def, gen);
+  const [x, y, w, h] = gen.board;
+  return { x: x - ax, y: y - ay, w, h };
 }
 
 /** Draw a prop with its anchor at (x, y). */

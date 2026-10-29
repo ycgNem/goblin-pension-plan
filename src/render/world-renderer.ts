@@ -3,8 +3,13 @@ import { VIEW_H, VIEW_W } from '../core/screen';
 import type { RegionId } from '../data/regions';
 import type { TileMap } from '../world/tilemap';
 import { TILE, type TileKind } from '../world/tiles';
+import { artImage } from './art/assets';
+import { REGION_TERRAIN } from './art/regions';
+import type { TilesetDef } from './art/sheet-types';
+import { TILESETS } from './art/sheets.gen';
 import type { View } from './lighting';
 import { PAL } from './palette';
+import { neighborhood, patchCodes, pickTile, terrainCodes, waterAt, waterCodes } from './terrain';
 
 export type { View } from './lighting';
 
@@ -90,8 +95,26 @@ export class WorldRenderer {
     ctx.clearRect(0, 0, map.widthPx, map.heightPx);
     this.water = [];
     this.exits = [];
-    for (let row = 0; row < map.rows; row++) {
-      for (let col = 0; col < map.cols; col++) this.drawTile(ctx, map, col, row, opts);
+    const terrain = REGION_TERRAIN[opts.region];
+    const floor = terrain && TILESETS[terrain.floor];
+    const walls = terrain && TILESETS[terrain.walls];
+    const floorImg = floor && artImage(floor.file);
+    const wallImg = walls && artImage(walls.file);
+    const water = terrain?.water && TILESETS[terrain.water];
+    const waterImg = water && artImage(water.file);
+    if (terrain && floor && walls && floorImg && wallImg) {
+      // Generated terrain on the dual grid: the floor with its patches, any water, the walls over
+      // them (their plain floor tiles skipped so the patches show), then what sits on top cell by cell.
+      bakeLayer(ctx, map, floor, floorImg, patchCodes(map, terrain.patches, terrain.invert));
+      if (water && waterImg) bakeLayer(ctx, map, water, waterImg, waterCodes(map), 1);
+      bakeLayer(ctx, map, walls, wallImg, terrainCodes(map), 0);
+      for (let row = 0; row < map.rows; row++) {
+        for (let col = 0; col < map.cols; col++) this.drawOverlay(ctx, map, col, row, opts, !!waterImg);
+      }
+    } else {
+      for (let row = 0; row < map.rows; row++) {
+        for (let col = 0; col < map.cols; col++) this.drawTile(ctx, map, col, row, opts);
+      }
     }
     if (opts.region === 'coop') this.drawBunting(ctx, map);
     if (opts.region === 'burrow') drawBurrowDressing(ctx, map, opts.holesPatched);
@@ -176,6 +199,41 @@ export class WorldRenderer {
     if (kind === 'moss') drawMoss(ctx, x, y, n);
     if (kind === 'gate') drawGate(ctx, x, y, map.gateOpen);
     this.contactShadow(ctx, map, col, row);
+  }
+
+  /** Over generated terrain: the things a tileset doesn't draw. Water from a tileset only needs its shimmer. */
+  private drawOverlay(ctx: CanvasRenderingContext2D, map: TileMap, col: number, row: number, opts: BakeOptions, tiledWater: boolean): void {
+    const kind = map.kindAt(col, row);
+    const x = col * TILE;
+    const y = row * TILE;
+    if (tiledWater && waterAt(map, col, row)) {
+      this.water.push({ col, row });
+      return;
+    }
+    switch (kind) {
+      case 'hole':
+        drawHole(ctx, x, y, opts.holesPatched, hash2(col, row));
+        return;
+      case 'sludge':
+        this.drawWater(ctx, map, col, row);
+        return;
+      case 'crawl':
+        drawPipe(ctx, map, col, row);
+        return;
+      case 'gate':
+        drawGate(ctx, x, y, map.gateOpen);
+        return;
+      case 'exit':
+        this.drawExit(ctx, map, col, row, false);
+        return;
+      case 'prop':
+        if (['sludge', 'prop'].includes(map.kindAt(col - 1, row)) && ['sludge', 'prop'].includes(map.kindAt(col + 1, row))) {
+          this.drawWater(ctx, map, col, row);
+        }
+        return;
+      default:
+        return;
+    }
   }
 
   private drawFloor(ctx: CanvasRenderingContext2D, x: number, y: number, col: number, row: number, n: number): void {
@@ -458,7 +516,7 @@ export class WorldRenderer {
     this.water.push({ col, row });
   }
 
-  private drawExit(ctx: CanvasRenderingContext2D, map: TileMap, col: number, row: number): void {
+  private drawExit(ctx: CanvasRenderingContext2D, map: TileMap, col: number, row: number, floor = true): void {
     const x = col * TILE;
     const y = row * TILE;
     const out = (dc: number, dr: number) => {
@@ -468,7 +526,7 @@ export class WorldRenderer {
     const [dx, dy] = out(1, 0) ? [1, 0] : out(-1, 0) ? [-1, 0] : out(0, 1) ? [0, 1] : [0, -1];
     const piped = [map.kindAt(col - 1, row), map.kindAt(col + 1, row), map.kindAt(col, row - 1), map.kindAt(col, row + 1)].includes('crawl');
     if (piped) drawPipe(ctx, map, col, row);
-    else this.drawFloor(ctx, x, y, col, row, hash2(col, row));
+    else if (floor) this.drawFloor(ctx, x, y, col, row, hash2(col, row));
     // Fade into darkness toward the way out.
     for (let i = 0; i < 8; i++) {
       ctx.fillStyle = `rgba(5, 6, 5, ${0.1 + i * 0.1})`;
@@ -497,6 +555,35 @@ export class WorldRenderer {
           }
         }
       }
+    }
+  }
+}
+
+/**
+ * One layer of a region's generated terrain on the dual grid (see terrain.ts): display tiles sit
+ * half a tile off the map grid, so the first row and column start half a tile above and left of
+ * the map. Plain tiles are mirrored at random so big rooms don't show the repeat; plain tiles of
+ * the `skip` terrain aren't drawn at all, so the layer underneath shows.
+ */
+function bakeLayer(ctx: CanvasRenderingContext2D, map: TileMap, set: TilesetDef, img: HTMLImageElement, codes: Int8Array, skip?: number): void {
+  const s = set.size;
+  for (let j = -1; j < map.rows; j++) {
+    for (let i = -1; i < map.cols; i++) {
+      const { tile } = pickTile(set, neighborhood(codes, map.cols, map.rows, i, j));
+      const x = i * TILE + TILE / 2;
+      const y = j * TILE + TILE / 2;
+      const plain = tile.corners.every((c) => c === tile.corners[0]);
+      if (plain && tile.corners[0] === skip) continue;
+      const h = hash2(i + 101, j + 37 + set.size * codes.length);
+      if (!plain || h < 0.5) {
+        ctx.drawImage(img, tile.x, tile.y, s, s, x, y, s, s);
+        continue;
+      }
+      ctx.save();
+      ctx.translate(x + (h < 0.75 ? s : 0), y + (h >= 0.75 ? s : 0));
+      ctx.scale(h < 0.75 ? -1 : 1, h >= 0.75 ? -1 : 1);
+      ctx.drawImage(img, tile.x, tile.y, s, s, 0, 0, s, s);
+      ctx.restore();
     }
   }
 }

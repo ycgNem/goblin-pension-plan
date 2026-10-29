@@ -4,11 +4,13 @@ import { clamp } from '../core/math';
 import { BASE_H, BASE_W, stageOrigin, VIEW_H, VIEW_W } from '../core/screen';
 import { CHAPTER_CARD, GUILD_SURVEY, INTRO } from '../data/story';
 import { GOBLIN, HUMAN_PALETTES, humanSprite } from '../render/art/characters';
+import { SHEETS } from '../render/art/sheets.gen';
 import { drawFrameVignette, Lighting, type Light } from '../render/lighting';
+import { sheet } from '../render/sheet';
 import { sprite } from '../render/sprites';
 import type { Hud } from '../ui/hud';
 import { confirmPressed, keyHints, UI } from '../ui/overlay';
-import { panelArt } from './backdrops';
+import { drawBells, panelArt, type PanelInfo } from './backdrops';
 
 const CPS = 38;
 const FADE = 0.5;
@@ -17,6 +19,13 @@ const BAR = 46;
 const STAMP_AT = 1.1;
 
 const PARTY = [humanSprite(HUMAN_PALETTES.paladin), humanSprite(HUMAN_PALETTES.ranger), humanSprite(HUMAN_PALETTES.apprentice)];
+const PARTY_SHEETS = [SHEETS.paladin, SHEETS.ranger, SHEETS.apprentice];
+
+/** A mark's point, or the origin if the panel doesn't give it. */
+function at(info: PanelInfo, key: string): [number, number] {
+  const m = info.marks[key];
+  return [m?.[0] ?? 0, m?.[1] ?? 0];
+}
 
 /** The story so far: six illustrated panels, narrated. Space moves on, Esc skips. */
 export class IntroScreen {
@@ -26,7 +35,7 @@ export class IntroScreen {
   private leaving = -1;
   private stamped = false;
   private readonly lighting = new Lighting();
-  private readonly junk: { x: number; y: number; vy: number; c: string }[] = [];
+  private readonly junk: { x: number; y: number; vy: number; c: string; bottom: number }[] = [];
 
   constructor(private readonly input: Input, private readonly onDone: () => void) {
     audio.sfx('page');
@@ -59,13 +68,14 @@ export class IntroScreen {
     }
     if (INTRO[this.index]!.art === 'chute' && Math.random() < dt * 9) {
       const colors = ['#cfc8b0', '#8a9096', '#9a5a30', '#6a4a2c', '#5aa07a', '#c04040', '#e8e0c8'];
-      this.junk.push({ x: 230 + Math.random() * 20, y: 46, vy: 10 + Math.random() * 30, c: colors[Math.floor(Math.random() * colors.length)]! });
+      const [x = 240, top = 46, bottom = BASE_H, w = 20] = panelArt('chute').marks.chute ?? [];
+      this.junk.push({ x: x - w / 2 + Math.random() * w, y: top, vy: 10 + Math.random() * 30, c: colors[Math.floor(Math.random() * colors.length)]!, bottom });
     }
     for (const j of this.junk) {
       j.vy += 200 * dt;
       j.y += j.vy * dt;
     }
-    for (let i = this.junk.length - 1; i >= 0; i--) if (this.junk[i]!.y > BASE_H) this.junk.splice(i, 1);
+    for (let i = this.junk.length - 1; i >= 0; i--) if (this.junk[i]!.y > this.junk[i]!.bottom) this.junk.splice(i, 1);
   }
 
   private next(): void {
@@ -89,20 +99,16 @@ export class IntroScreen {
     ctx.beginPath();
     ctx.rect(0, 0, BASE_W, BASE_H);
     ctx.clip();
-    // A slow push in.
-    const drift = Math.round(Math.min(8, this.t * 1.2));
-    ctx.drawImage(info.canvas, -drift, -Math.round(drift / 2), BASE_W + drift * 2, BASE_H + drift);
+    // A slow push in. Paintings hold still: scaling them would smear their pixels.
+    const drift = info.painted ? 0 : Math.round(Math.min(8, this.t * 1.2));
+    if (info.painted) ctx.drawImage(info.canvas, 0, 0);
+    else ctx.drawImage(info.canvas, -drift, -Math.round(drift / 2), BASE_W + drift * 2, BASE_H + drift);
     const lights: Light[] = [];
     const t = this.t;
 
     switch (panel.art) {
-      case 'city':
-        for (const [k, [bx, by]] of Object.entries(info.marks)) {
-          if (!k.startsWith('bell')) continue;
-          const swing = Math.round(Math.sin(t * 2.2 + bx) * 2);
-          ctx.fillStyle = '#c8a040';
-          ctx.fillRect(bx - 2 + swing - drift, by - drift / 2, 5, 4);
-        }
+      case 'city': {
+        drawBells(ctx, info.canvas, info.bells, t, -drift, -Math.round(drift / 2));
         for (let i = 0; i < 4; i++) {
           const bx = ((t * 18 + i * 120) % 560) - 40;
           const by = 60 + i * 12 + Math.sin(t * 3 + i) * 3;
@@ -111,22 +117,35 @@ export class IntroScreen {
           ctx.fillRect(Math.round(bx) + 2, Math.round(by) - 1, 2, 1);
           ctx.fillRect(Math.round(bx) - 2, Math.round(by) - 1, 2, 1);
         }
-        lights.push({ x: 380, y: 46, r: 140, color: '#c8c0e0', a: 0.6 }, { x: 240, y: 150, r: 300, color: '#e0b0a0', a: 0.8 });
+        const [mx, my] = at(info, 'moon');
+        lights.push({ x: mx, y: my, r: 140, color: '#c8c0e0', a: 0.6 }, { x: 240, y: 150, r: 300, color: '#e0b0a0', a: 0.8 });
         break;
-      case 'chute':
+      }
+      case 'chute': {
         for (const j of this.junk) {
           ctx.fillStyle = j.c;
           ctx.fillRect(Math.round(j.x) - drift, Math.round(j.y), 2, 2);
         }
-        lights.push({ x: 240, y: 40, r: 120, color: '#f0c890', a: 0.8 }, { x: 240, y: 268, r: 100, color: '#5aa060', a: 0.7 });
+        const [sx, sy] = at(info, 'sky');
+        const [gx, gy] = at(info, 'glow');
+        lights.push({ x: sx, y: sy, r: 120, color: '#f0c890', a: 0.8 }, { x: gx, y: gy, r: 100, color: '#5aa060', a: 0.7 });
         break;
+      }
       case 'heroes': {
-        const px = 380 - t * 22;
+        const [startX, feet] = at(info, 'party');
+        const px = startX - t * 22;
         PARTY.forEach((def, i) => {
-          sprite(def).draw(ctx, 2 + (Math.floor(t * 5 + i) % 2), px + i * 22 - drift, 188, { flip: true, silhouette: '#0a0806' });
+          const art = sheet(PARTY_SHEETS[i]!);
+          const x = px + i * 22 - drift;
+          if (art.ready) art.draw(ctx, 'walk_e', Math.floor(t * 8) + i * 2, x, feet, { flip: true, silhouette: '#0a0806' });
+          else sprite(def).draw(ctx, 2 + (Math.floor(t * 5 + i) % 2), x, feet, { flip: true, silhouette: '#0a0806' });
         });
-        lights.push({ x: px - drift, y: 168, r: 90, color: '#ffb060', a: 0.95, flicker: 0.3 });
-        const [ex, ey] = info.marks.eyes!;
+        lights.push({ x: px - drift, y: feet - 20, r: 90, color: '#ffb060', a: 0.95, flicker: 0.3 });
+        if (info.marks.torch) {
+          const [tx, ty] = at(info, 'torch');
+          lights.push({ x: tx, y: ty, r: 80, color: '#ffb060', a: 0.9, flicker: 0.25, seed: 3 });
+        }
+        const [ex, ey] = at(info, 'eyes');
         if (Math.floor(t * 0.9) % 4 !== 0) {
           ctx.fillStyle = '#f4e46a';
           ctx.fillRect(ex - drift, ey, 1, 1);
@@ -136,23 +155,36 @@ export class IntroScreen {
         break;
       }
       case 'alcove': {
-        const [gx, gy] = info.marks.goblin!;
-        sprite(GOBLIN).draw(ctx, 0, gx - drift, gy - drift / 2);
-        for (let i = 0; i < 3; i++) {
-          const k = (t * 0.7 + i / 3) % 1;
-          ctx.fillStyle = 'rgba(160, 190, 200, 0.8)';
-          ctx.fillRect(200 + i * 34 - drift, Math.round(132 + k * 50), 1, 2);
-        }
-        lights.push({ x: 200, y: 142, r: 60, color: '#7fbf5a', a: 0.6, flicker: 0.2 }, { x: 262, y: 142, r: 60, color: '#7fbf5a', a: 0.6, flicker: 0.2, seed: 4 });
+        const [gx, gy] = at(info, 'goblin');
+        const goblin = sheet(SHEETS.goblin);
+        if (goblin.ready) goblin.draw(ctx, 'idle_s', Math.floor(t * 4), gx - drift, Math.round(gy - drift / 2));
+        else sprite(GOBLIN).draw(ctx, 0, gx - drift, Math.round(gy - drift / 2));
+        // Drips: each mark is an x and the two heights a drop falls between.
+        Object.entries(info.marks)
+          .filter(([k]) => k.startsWith('drip'))
+          .forEach(([, [x = 0, top = 0, bottom = 0]], i) => {
+            const k = (t * 0.7 + i / 3) % 1;
+            ctx.fillStyle = 'rgba(160, 190, 200, 0.8)';
+            ctx.fillRect(x - drift, Math.round(top + k * (bottom - top)), 1, 2);
+          });
+        const [h0x, h0y] = at(info, 'hole0');
+        const [h1x, h1y] = at(info, 'hole1');
+        lights.push({ x: h0x, y: h0y, r: 60, color: '#7fbf5a', a: 0.6, flicker: 0.2 }, { x: h1x, y: h1y, r: 60, color: '#7fbf5a', a: 0.6, flicker: 0.2, seed: 4 });
         lights.push({ x: 240, y: 170, r: 120, color: '#8a9a88', a: 0.6 });
         break;
       }
       case 'notice':
       case 'charter':
         lights.push({ x: 240, y: 110, r: 260, color: '#f0e0c0', a: 0.95 });
+        // The painting's own candles and lamps.
+        for (const key of ['light0', 'light1']) {
+          if (!info.marks[key]) continue;
+          const [lx, ly] = at(info, key);
+          lights.push({ x: lx, y: ly, r: 70, color: '#ffc070', a: 0.8, flicker: 0.2, seed: lx });
+        }
         break;
     }
-    this.lighting.render(ctx, { x: 0, y: 0 }, panel.art === 'notice' || panel.art === 'charter' ? '#5a4a40' : '#56506a', lights, t);
+    this.lighting.render(ctx, { x: 0, y: 0 }, info.ambient, lights, t);
     this.lighting.glow(ctx, { x: 0, y: 0 }, lights, t, 0.15);
     ctx.restore();
     drawFrameVignette(ctx);

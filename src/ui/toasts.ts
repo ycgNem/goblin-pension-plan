@@ -61,9 +61,9 @@ export class Toasts {
       const slide = Math.round((1 - Math.min(1, toast.t / 0.15)) * 12);
       hud.setAlpha(a);
       const w = hud.measure(toast.text, 8);
-      if (toast.icon) hud.icon(toast.icon, Math.round(right - w - 14 + slide), Math.round(y) - 1);
+      if (toast.icon) hud.icon(toast.icon, Math.round(right - w - 19 + slide), Math.round(y) - 4);
       hud.text(toast.text, right + slide, y, { size: 8, color: toast.color, edge: 'outline', align: 'right' });
-      y -= 12;
+      y -= 16;
     }
     hud.setAlpha(1);
   }

@@ -8,7 +8,7 @@ import { canBuild, canCraft, gelsToFill, GENERATOR, recipeLocks, STATION_NEEDS, 
 import { haveCount, packSlots } from '../game/inventory';
 import { capacity, jobProgress, jobsAt } from '../game/production';
 import type { ProductionStation, SaveData, Tracked } from '../game/save';
-import { CHECK_ICON, LOCK_ICON } from '../render/art/icons';
+import { CHECK_ICON, hasIcon, LOCK_ICON } from '../render/art/icons';
 import type { Hud } from './hud';
 import { backPressed, cursor, formatTime, heading, keyHints, ListNav, UI, type Overlay } from './overlay';
 
@@ -128,17 +128,18 @@ export class StationOverlay implements Overlay {
     const listW = 150;
     this.nav.beginPlacing();
     entries.forEach((e, i) => {
-      const ey = listY + i * 15;
-      this.nav.place({ x: listX, y: ey - 2, w: listW, h: 15 });
+      const ey = listY + 3 + i * 18;
+      this.nav.place({ x: listX, y: ey - 5, w: listW, h: 18 });
       const on = i === this.nav.index;
-      if (on) hud.fill(listX, ey - 2, listW, 14, 'rgba(240, 160, 64, 0.12)');
+      if (on) hud.fill(listX, ey - 5, listW, 17, 'rgba(240, 160, 64, 0.12)');
       const name = e.kind === 'recipe' ? (RECIPES[e.id] as RecipeDef).name : (UPGRADES[e.id] as UpgradeDef).name;
       const locked = e.kind === 'recipe' ? recipeLocks(this.save, e.id).length > 0 : upgradeLocks(this.save, e.id).length > 0;
       const built = e.kind === 'upgrade' && this.save.upgrades.includes(e.id);
       const ready = e.kind === 'recipe' ? canCraft(this.save, e.id, true) : canBuild(this.save, e.id, true);
-      if (e.kind === 'recipe') hud.icon(RECIPES[e.id].output.item, listX + 3, ey);
-      else hud.fill(listX + 4, ey + 1, 8, 8, built ? '#5a7a3a' : '#5a5040');
-      hud.text(name, listX + 17, ey + 1, { size: 8, color: built ? UI.faint : locked ? UI.dim : on ? UI.text : '#d8d4c4' });
+      if (e.kind === 'recipe') hud.icon(RECIPES[e.id].output.item, listX + 1, ey - 4);
+      else if (hasIcon(e.id)) hud.icon(e.id, listX + 1, ey - 4);
+      else hud.fill(listX + 4, ey - 1, 10, 10, built ? '#5a7a3a' : '#5a5040');
+      hud.text(name, listX + 20, ey + 1, { size: 8, color: built ? UI.faint : locked ? UI.dim : on ? UI.text : '#d8d4c4' });
       if (built) hud.sprite(CHECK_ICON, listX + listW - 11, ey + 2);
       else if (locked) hud.sprite(LOCK_ICON, listX + listW - 11, ey + 1);
       else if (ready) hud.fill(listX + listW - 9, ey + 4, 3, 3, UI.gold);
@@ -153,7 +154,7 @@ export class StationOverlay implements Overlay {
     const dw = w - listW - 32;
     hud.panel(dx - 6, y + 22, dw + 6, h - 46, 'inset');
     if (e) this.drawDetail(hud, e, dx, y + 28, dw - 6);
-    if (isTimed(this.station) && this.save.upgrades.includes(STATION_NEEDS[this.station]!)) this.drawQueue(hud, this.station, dx, y + h - 54, dw - 6);
+    if (isTimed(this.station) && this.save.upgrades.includes(STATION_NEEDS[this.station]!)) this.drawQueue(hud, this.station, dx, y + h - 70, dw - 6);
 
     const verb = e?.kind === 'upgrade' ? 'Build' : isTimed(this.station) ? 'Start' : 'Make';
     const hints: [string, string][] = [['E', verb], ['T', 'Track']];
@@ -177,31 +178,31 @@ export class StationOverlay implements Overlay {
     cy += 4;
     const cost: ItemBag = r ? r.inputs : u!.cost;
     hud.text('NEEDS', x, cy, { font: 'head', size: 6, color: UI.faint });
-    cy += 9;
+    cy += 13;
     let cx = x;
     for (const item of Object.keys(cost) as ItemId[]) {
       const need = cost[item] ?? 0;
       const have = haveCount(this.save, item, true);
       const label = `${have}/${need} ${ITEMS[item].name}`;
-      const lw = Math.ceil(hud.measure(label, 7)) + 18;
+      const lw = Math.ceil(hud.measure(label, 7)) + 24;
       if (cx + lw > x + w) {
         cx = x;
-        cy += 12;
+        cy += 17;
       }
-      hud.icon(item, cx, cy);
-      hud.text(label, cx + 12, cy + 1, { size: 7, color: have >= need ? UI.good : UI.bad });
+      hud.icon(item, cx, cy - 4);
+      hud.text(label, cx + 18, cy + 1, { size: 7, color: have >= need ? UI.good : UI.bad });
       cx += lw;
     }
     if (r?.charge) {
       const label = `${this.save.charge}/${r.charge} Charge`;
-      if (cx + hud.measure(label, 7) + 18 > x + w) {
+      if (cx + hud.measure(label, 7) + 24 > x + w) {
         cx = x;
-        cy += 12;
+        cy += 17;
       }
-      drawBolt(hud, cx + 2, cy);
-      hud.text(label, cx + 12, cy + 1, { size: 7, color: this.save.charge >= r.charge ? UI.good : UI.bad });
+      drawBolt(hud, cx + 5, cy);
+      hud.text(label, cx + 18, cy + 1, { size: 7, color: this.save.charge >= r.charge ? UI.good : UI.bad });
     }
-    cy += 15;
+    cy += 16;
     const locks = r ? recipeLocks(this.save, e.id as RecipeId) : upgradeLocks(this.save, e.id as UpgradeId);
     if (locks.length > 0 && !(u && this.save.upgrades.includes(e.id as UpgradeId))) {
       hud.text('REQUIRES', x, cy, { font: 'head', size: 6, color: UI.faint });
@@ -226,11 +227,12 @@ export class StationOverlay implements Overlay {
     const jobs = jobProgress(this.save, station);
     const cap = capacity(this.save, station);
     hud.text(`WORKING  ${jobs.length}/${cap}`, x, y, { font: 'head', size: 6, color: UI.faint });
-    jobs.slice(0, 3).forEach((j, i) => {
-      const jy = y + 10 + i * 10;
+    // Two rows: the count above says how many more are cooking.
+    jobs.slice(0, 2).forEach((j, i) => {
+      const jy = y + 14 + i * 17;
       const r: RecipeDef = RECIPES[j.job.recipe];
-      hud.icon(r.output.item, x, jy - 1);
-      hud.bar(x + 13, jy + 2, w - 60, 5, j.frac, j.done ? UI.good : '#c8a040');
+      hud.icon(r.output.item, x, jy - 4);
+      hud.bar(x + 19, jy + 2, w - 66, 5, j.frac, j.done ? UI.good : '#c8a040');
       hud.text(j.done ? 'Ready' : formatTime(j.left), x + w, jy, { size: 7, color: j.done ? UI.good : UI.dim, align: 'right' });
     });
     if (jobs.length === 0) hud.text('Idle. Give it something to do.', x, y + 10, { size: 7, color: UI.dim });
@@ -301,8 +303,8 @@ export class GeneratorOverlay implements Overlay {
       hud.bar(x + 12 + i * 58, y + 40, 54, 9, filled, '#58c078', '#142a1e');
     }
     const gel = haveCount(this.save, 'slimeGel', true);
-    hud.icon('slimeGel', x + 12, y + 56);
-    hud.text(`${gel} Slime Gel at hand (pack and storage)`, x + 26, y + 57, { size: 7, color: gel > 0 ? UI.text : UI.bad });
+    hud.icon('slimeGel', x + 10, y + 53);
+    hud.text(`${gel} Slime Gel at hand (pack and storage)`, x + 30, y + 57, { size: 7, color: gel > 0 ? UI.text : UI.bad });
     this.nav.beginPlacing();
     const next = Math.min(GENERATOR.perGel, GENERATOR.capacity - charge);
     const rows = [`Feed 1 gel  (+${next} charge)`, `Fill it up  (${Math.min(this.room, gel)} gel)`];
@@ -371,7 +373,7 @@ export class StorageOverlay implements Overlay {
       hud.panel(sx, sy, 24, 24, 'inset');
       const s = this.save.pack[i];
       if (s) {
-        hud.icon(s.item, sx + 7, sy + 5);
+        hud.icon(s.item, sx + 4, sy + 4);
         hud.text(String(s.qty), sx + 22, sy + 15, { size: 7, align: 'right', edge: 'outline' });
       }
     }
@@ -379,21 +381,21 @@ export class StorageOverlay implements Overlay {
     const items = this.stored();
     const lx = x + 104;
     hud.text('STORED', lx, y + 26, { font: 'head', size: 6, color: UI.faint });
-    const rows = 10;
+    const rows = 8;
     const start = Math.max(0, Math.min(this.nav.index - rows + 2, items.length - rows));
     this.nav.beginPlacing();
     for (let i = 0; i < start; i++) this.nav.place({ x: -99, y: -99, w: 0, h: 0 });
     items.slice(start, start + rows).forEach(([id, n], k) => {
       const i = start + k;
-      const ry = y + 36 + k * 13;
-      this.nav.place({ x: lx, y: ry - 2, w: w - 114, h: 13 });
+      const ry = y + 39 + k * 17;
+      this.nav.place({ x: lx, y: ry - 5, w: w - 114, h: 17 });
       const on = i === this.nav.index;
       if (on) {
-        hud.fill(lx, ry - 2, w - 114, 12, 'rgba(240, 160, 64, 0.12)');
+        hud.fill(lx, ry - 5, w - 114, 16, 'rgba(240, 160, 64, 0.12)');
         cursor(hud, lx - 7, ry + 1, time);
       }
-      hud.icon(id, lx + 2, ry - 1);
-      hud.text(ITEMS[id].name, lx + 16, ry, { size: 8, color: on ? UI.text : '#d8d4c4' });
+      hud.icon(id, lx + 1, ry - 4);
+      hud.text(ITEMS[id].name, lx + 20, ry, { size: 8, color: on ? UI.text : '#d8d4c4' });
       hud.text(String(n), x + w - 12, ry, { size: 8, color: UI.dim, align: 'right' });
     });
     if (items.length === 0) hud.text('Empty. A crate full of potential.', lx, y + 36, { size: 8, color: UI.dim });

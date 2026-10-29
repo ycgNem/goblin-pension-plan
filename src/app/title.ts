@@ -4,12 +4,14 @@ import { clamp } from '../core/math';
 import { BASE_H, BASE_W, setFullscreen, stageOrigin, VIEW_H, VIEW_W } from '../core/screen';
 import { settings } from '../core/settings';
 import { GOBLIN } from '../render/art/characters';
+import { SHEETS } from '../render/art/sheets.gen';
 import { Lighting, drawFrameVignette, type Light } from '../render/lighting';
+import { sheet } from '../render/sheet';
 import { sprite } from '../render/sprites';
 import type { Hud } from '../ui/hud';
 import { backPressed, confirmPressed, cursor, keyHints, ListNav, UI } from '../ui/overlay';
 import { SettingsPanel } from '../ui/pause';
-import { TITLE_OX, TITLE_REST_BOTTOM, titleArt } from './backdrops';
+import { drawBells, titleArt } from './backdrops';
 
 export interface TitleHooks {
   hasSave(): boolean;
@@ -125,7 +127,7 @@ export class TitleScreen {
       this.junkT = 1.6 + Math.random() * 3;
       const colors = ['#cfc8b0', '#8a9096', '#9a5a30', '#6a4a2c', '#5aa07a', '#c04040'];
       for (let i = 0; i < 2 + Math.floor(Math.random() * 3); i++) {
-        this.junk.push({ x: a.chute.x - 3 + Math.random() * 6, y: a.chute.top - i * 6, vy: 20 + Math.random() * 20, color: colors[Math.floor(Math.random() * colors.length)]!, w: 1 + Math.floor(Math.random() * 3) });
+        this.junk.push({ x: a.chute.x - a.chute.w / 2 + Math.random() * a.chute.w, y: a.chute.top - i * 6, vy: 20 + Math.random() * 20, color: colors[Math.floor(Math.random() * colors.length)]!, w: 1 + Math.floor(Math.random() * 3) });
       }
     }
     for (const j of this.junk) {
@@ -138,22 +140,16 @@ export class TitleScreen {
   render(ctx: CanvasRenderingContext2D, hud: Hud): void {
     const a = titleArt();
     const pan = ease(clamp(this.panT / PAN_TIME, 0, 1));
-    const viewY = Math.round(pan * Math.max(0, TITLE_REST_BOTTOM - VIEW_H));
+    const viewY = Math.round(pan * Math.max(0, a.rest - VIEW_H));
     const stage = stageOrigin();
-    // The backdrop is wider than any view: line its 480-wide middle up with the stage.
-    const dx = stage.x - TITLE_OX;
+    // The backdrop is wider than any view: line its 480-wide stage up with ours, without leaving a gap at either edge.
+    const dx = clamp(stage.x - a.ox, VIEW_W - a.canvas.width, 0);
     ctx.fillStyle = '#16120f';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     ctx.drawImage(a.canvas, dx, -viewY);
 
     // Bells swinging in their towers.
-    a.bells.forEach(([bx, by], i) => {
-      const swing = Math.round(Math.sin(this.t * 1.7 + i * 1.3) * 2);
-      ctx.fillStyle = '#c8a040';
-      ctx.fillRect(bx + dx - 2 + swing, by - viewY, 5, 4);
-      ctx.fillStyle = '#8a6a20';
-      ctx.fillRect(bx + dx - 3 + swing, by + 4 - viewY, 7, 1);
-    });
+    drawBells(ctx, a.canvas, a.bells, this.t, dx, -viewY);
     // Stars twinkling.
     for (let i = 0; i < 8; i++) {
       const sx = (i * 97 + Math.floor(this.t * 0.7) * 53) % VIEW_W;
@@ -166,10 +162,14 @@ export class TitleScreen {
       ctx.fillRect(Math.round(j.x) + dx, Math.round(j.y) - viewY, j.w, 1 + (j.w % 2));
     }
     // The goblin by the pot, warming its hands.
-    sprite(GOBLIN).draw(ctx, 6, a.goblin.x + dx, a.goblin.y - viewY);
-    if (Math.floor(this.t * 0.4) % 5 === 0 && this.t % 2.5 < 0.15) {
-      ctx.fillStyle = '#1b2414';
-      ctx.fillRect(a.goblin.x + dx + 1, a.goblin.y - viewY - 10, 2, 1);
+    const goblin = sheet(SHEETS.goblin);
+    if (goblin.ready) goblin.draw(ctx, 'idle_e', Math.floor(this.t * 4), a.goblin.x + dx, a.goblin.y - viewY);
+    else {
+      sprite(GOBLIN).draw(ctx, 6, a.goblin.x + dx, a.goblin.y - viewY);
+      if (Math.floor(this.t * 0.4) % 5 === 0 && this.t % 2.5 < 0.15) {
+        ctx.fillStyle = '#1b2414';
+        ctx.fillRect(a.goblin.x + dx + 1, a.goblin.y - viewY - 10, 2, 1);
+      }
     }
     // Steam off the pot.
     for (let i = 0; i < 4; i++) {
@@ -183,9 +183,9 @@ export class TitleScreen {
       { x: a.lantern.x, y: a.lantern.y - viewY, r: 110, color: '#ffc070', a: 0.95, flicker: 0.12, seed: 1 },
       { x: a.pot.x, y: a.pot.y + 12 - viewY, r: 50, color: '#ff8a30', a: 0.8, flicker: 0.45, seed: 2 },
       { x: a.moon.x, y: a.moon.y - viewY, r: 90, color: '#c8c0e0', a: 0.5 },
-      { x: TITLE_OX + 240, y: 70 - viewY, r: 300, color: '#d8a0a0', a: 0.75 },
+      { x: a.ox + 240, y: 70 - viewY, r: 300, color: '#d8a0a0', a: 0.75 },
     ];
-    this.lighting.render(ctx, { x: -dx, y: 0 }, '#3c3848', lights, this.t);
+    this.lighting.render(ctx, { x: -dx, y: 0 }, a.ambient, lights, this.t);
     this.lighting.glow(ctx, { x: -dx, y: 0 }, lights.slice(0, 2), this.t);
     drawFrameVignette(ctx);
 

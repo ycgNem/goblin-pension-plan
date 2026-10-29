@@ -84,7 +84,7 @@ export class ReceiptOverlay extends Card {
   draw(hud: Hud, time: number): void {
     const w = 236;
     const feeRows = Math.ceil(this.receipt.fee.length / 2);
-    const h = 108 + this.receipt.lines.length * 11 + feeRows * 13;
+    const h = 108 + this.receipt.lines.length * 11 + feeRows * 18;
     const x = Math.round((VIEW_W - w) / 2);
     const y = Math.round((VIEW_H - h) / 2) + this.rise;
     hud.fade(0.5);
@@ -107,11 +107,11 @@ export class ReceiptOverlay extends Card {
     }
     this.receipt.fee.forEach((f, i) => {
       const fx = x + 16 + (i % 2) * 108;
-      const fy = cy + Math.floor(i / 2) * 13;
-      hud.icon(f.item, fx, fy);
-      hud.text(`${f.qty} x ${f.name}`, fx + 13, fy + 1, { size: 7, color: '#8a2a1a', edge: 'none' });
+      const fy = cy + Math.floor(i / 2) * 18 + 3;
+      hud.icon(f.item, fx, fy - 4);
+      hud.text(`${f.qty} x ${f.name}`, fx + 18, fy + 1, { size: 7, color: '#8a2a1a', edge: 'none' });
     });
-    cy += feeRows * 13 + 4;
+    cy += feeRows * 18 + 4;
     hud.text(this.receipt.lines[this.receipt.lines.length - 1] ?? '', VIEW_W / 2, cy, { size: 8, color: UI.inkDim, align: 'center', edge: 'none' });
     hud.fill(x + 24, cy + 20, w - 48, 1, UI.ink);
     hud.text('X', x + 18, cy + 12, { size: 8, color: UI.ink, edge: 'none' });
@@ -143,7 +143,7 @@ export class SummaryOverlay extends Card {
     const xp = Object.entries(this.r.xp).filter(([, n]) => (n ?? 0) > 0) as [SkillId, number][];
     const w = 280;
     const itemRows = Math.max(1, Math.ceil(items.length / 3));
-    const h = 64 + itemRows * 14 + (xp.length > 0 ? 18 : 0) + (this.r.progress ? 34 : 0) + this.r.steps.length * 12 + 8;
+    const h = 64 + itemRows * 18 + (xp.length > 0 ? 18 : 0) + (this.r.progress ? 34 : 0) + this.r.steps.length * 12 + 8;
     const x = Math.round((VIEW_W - w) / 2);
     const y = Math.round((VIEW_H - h) / 2) - 10 + this.rise;
     hud.panel(x, y, w, h);
@@ -163,12 +163,12 @@ export class SummaryOverlay extends Card {
     if (items.length === 0) hud.text('Nothing this time. Fresh air, mostly.', x + 12, cy, { size: 8, color: UI.dim });
     items.forEach(([id, n], i) => {
       const ix = x + 12 + (i % 3) * 88;
-      const iy = cy + Math.floor(i / 3) * 14;
+      const iy = cy + Math.floor(i / 3) * 18 + 3;
       const pop = Math.max(0, 1 - (this.t - i * 0.08) / 0.2);
-      hud.icon(id, ix, iy - Math.round(pop * 3));
-      hud.text(`+${n} ${ITEMS[id].name}`, ix + 13, iy + 1, { size: 7 });
+      hud.icon(id, ix, iy - 4 - Math.round(pop * 3));
+      hud.text(`+${n} ${ITEMS[id].name}`, ix + 18, iy + 1, { size: 7 });
     });
-    cy += itemRows * 14 + 4;
+    cy += itemRows * 18 + 4;
     if (xp.length > 0) {
       hud.text(xp.map(([s, n]) => `+${n} ${SKILLS[s].name}`).join('   '), x + 12, cy, { size: 7, color: UI.good });
       cy += 18;
@@ -179,11 +179,11 @@ export class SummaryOverlay extends Card {
       hud.text(this.r.progress.label, x + 12, cy, { size: 8, color: ready ? UI.gold : UI.text });
       let px = x + 12;
       for (const p of this.r.progress.parts) {
-        hud.icon(p.item, px, cy + 11);
+        hud.icon(p.item, px, cy + 8);
         const done = p.have >= p.need;
         const label = `${Math.min(p.have, p.need)}/${p.need}`;
-        hud.text(label, px + 12, cy + 12, { size: 7, color: done ? UI.good : UI.bad });
-        px += 16 + Math.ceil(hud.measure(label, 7));
+        hud.text(label, px + 17, cy + 12, { size: 7, color: done ? UI.good : UI.bad });
+        px += 21 + Math.ceil(hud.measure(label, 7));
         if (done) hud.sprite(CHECK_ICON, px - 3, cy + 13);
         px += 10;
       }

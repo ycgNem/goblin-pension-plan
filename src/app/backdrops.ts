@@ -1,18 +1,90 @@
 import type { PanelArt } from '../data/story';
+import { artImage } from '../render/art/assets';
 import { drawProp } from '../render/art/props';
+import type { BackdropArtDef } from '../render/art/sheet-types';
+import { BACKDROP_ART } from '../render/art/sheets.gen';
 import { art, type Painter } from '../render/paint';
 
-// Painted backdrops for the title screen and the story intro. Static layers are painted once;
-// title.ts and intro.ts animate on top (falling rubbish, bells, torches, steam).
+// Backdrops for the title screen and the story intro: generated paintings when they're loaded,
+// painted in code otherwise. Static layers are made once; title.ts and intro.ts animate on top
+// (falling rubbish, bells, torches, steam) at the marks each backdrop gives.
 
 /** The title backdrop is wider and taller than the base view, so it fills any window shape. */
 export const TITLE_W = 640;
 export const TITLE_H = 380;
-/** Where the 480-wide composition starts inside the wide title backdrop. */
+/** Where the code backdrop's 480-wide composition starts inside the wide title backdrop. */
 export const TITLE_OX = (TITLE_W - 480) / 2;
 /** The camera's pan ends with this backdrop row at the bottom of the screen. */
 export const TITLE_REST_BOTTOM = 340;
 export const GROUND_Y = 132;
+
+type Marks = Readonly<Record<string, readonly number[]>>;
+
+/** Marks every painting has to give, by backdrop: the animation layer draws at them. */
+export const BACKDROP_MARKS = {
+  title: ['moon', 'chute', 'light', 'goblin', 'pot'],
+  city: ['moon'],
+  chute: ['chute', 'sky', 'glow'],
+  heroes: ['eyes', 'party'],
+  alcove: ['goblin', 'hole0', 'hole1'],
+  notice: [],
+  charter: [],
+} as const satisfies Record<'title' | PanelArt, readonly string[]>;
+
+/** A bell the animation layer swings. A painted one carries its empty belfry, to draw behind it. */
+export interface Bell {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  patch?: HTMLCanvasElement;
+}
+
+/** Rock the bells: painted ones a pixel either way over their empty belfry, code ones as small gold bells. */
+export function drawBells(ctx: CanvasRenderingContext2D, src: CanvasImageSource, bells: readonly Bell[], t: number, dx: number, dy: number): void {
+  bells.forEach((b, i) => {
+    const phase = Math.sin(t * 1.9 + i * 1.3);
+    if (b.patch) {
+      ctx.drawImage(b.patch, b.x + dx, b.y + dy);
+      ctx.drawImage(src, b.x, b.y, b.w, b.h, b.x + dx + Math.round(phase), b.y + dy, b.w, b.h);
+      return;
+    }
+    const swing = Math.round(phase * 2);
+    ctx.fillStyle = '#c8a040';
+    ctx.fillRect(b.x + dx - 2 + swing, b.y + dy, 5, 4);
+    ctx.fillStyle = '#8a6a20';
+    ctx.fillRect(b.x + dx - 3 + swing, b.y + dy + 4, 7, 1);
+  });
+}
+
+/** A generated backdrop drawn onto a canvas (props go on top of it), or null if it isn't loaded. */
+function painting(id: string): { canvas: HTMLCanvasElement; def: BackdropArtDef } | null {
+  const def = (BACKDROP_ART as Partial<Record<string, BackdropArtDef>>)[id];
+  const img = def && artImage(def.file);
+  if (!def || !img) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = def.w;
+  canvas.height = def.h;
+  canvas.getContext('2d')!.drawImage(img, 0, 0);
+  return { canvas, def };
+}
+
+/** A painting's bells (marks bell0, bell1...), each with the column beside it stretched across as its empty belfry. */
+function paintedBells(canvas: HTMLCanvasElement, marks: Marks): Bell[] {
+  return Object.entries(marks)
+    .filter(([k]) => /^bell\d+$/.test(k))
+    .map(([, [x = 0, y = 0, w = 1, h = 1]]) => {
+      const patch = document.createElement('canvas');
+      patch.width = w;
+      patch.height = h;
+      const g = patch.getContext('2d')!;
+      g.imageSmoothingEnabled = false;
+      g.drawImage(canvas, x - 1, y, 1, h, 0, 0, w, h);
+      return { x, y, w, h, patch };
+    });
+}
+
+const point = (m: readonly number[] | undefined): { x: number; y: number } => ({ x: m?.[0] ?? 0, y: m?.[1] ?? 0 });
 
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
@@ -122,19 +194,61 @@ function alcove(p: Painter, cx: number, cy: number, warm: boolean): void {
 
 export interface TitleArt {
   canvas: HTMLCanvasElement;
-  bells: [number, number][];
-  chute: { x: number; top: number; bottom: number };
+  /** Where the 480-wide stage starts in the backdrop, and the row the camera's pan ends on. */
+  ox: number;
+  rest: number;
+  /** The light map's darkness. */
+  ambient: string;
+  bells: Bell[];
+  /** Rubbish falls down the chute between top and bottom, spread across its width. */
+  chute: { x: number; top: number; bottom: number; w: number };
   goblin: { x: number; y: number };
+  /** Where the steam leaves the pot. */
   pot: { x: number; y: number };
   lantern: { x: number; y: number };
   moon: { x: number; y: number };
 }
 
+/** Props set into the painted alcove, each at the mark of its own name. */
+const TITLE_PROPS = [['bed', 'mattress'], ['sign', 'definitely'], ['storage', 'full'], ['pot', '']] as const;
+/** Steam leaves the pot this far above its feet. */
+const STEAM_UP = 14;
+
 let titleCache: TitleArt | null = null;
 
 /** The title screen: Bellmarket at dusk above, the dungeon below, and one lit alcove. */
 export function titleArt(): TitleArt {
-  if (titleCache) return titleCache;
+  titleCache ??= paintedTitle() ?? codeTitle();
+  return titleCache;
+}
+
+function paintedTitle(): TitleArt | null {
+  const p = painting('title');
+  if (!p) return null;
+  const m = p.def.marks;
+  const bells = paintedBells(p.canvas, m);
+  const g = p.canvas.getContext('2d')!;
+  for (const [id, variant] of TITLE_PROPS) {
+    const at = m[id];
+    if (at) drawProp(g, id, variant, at[0] ?? 0, at[1] ?? 0);
+  }
+  const [x = 0, top = 0, bottom = 0, w = 6] = m.chute ?? [];
+  const pot = point(m.pot);
+  return {
+    canvas: p.canvas,
+    ox: p.def.ox ?? TITLE_OX,
+    rest: p.def.rest ?? p.def.h,
+    ambient: p.def.ambient ?? '#3c3848',
+    bells,
+    chute: { x, top, bottom, w },
+    goblin: point(m.goblin),
+    pot: { x: pot.x, y: pot.y - STEAM_UP },
+    lantern: point(m.light),
+    moon: point(m.moon),
+  };
+}
+
+function codeTitle(): TitleArt {
   const W = TITLE_W;
   const ox = TITLE_OX;
   let bells: [number, number][] = [];
@@ -180,34 +294,58 @@ export function titleArt(): TitleArt {
   drawProp(g, 'storage', 'full', cx + 52, cy + 24);
   drawProp(g, 'pot', '', cx - 10, cy + 24);
   drawProp(g, 'lantern', '', cx + 18, cy + 22);
-  titleCache = {
+  return {
     canvas,
-    bells,
-    chute: { x: ox + 153, top: GROUND_Y + 8, bottom: GROUND_Y + 124 },
+    ox,
+    rest: TITLE_REST_BOTTOM,
+    ambient: '#3c3848',
+    bells: bells.map(([x, y]) => ({ x, y, w: 0, h: 0 })),
+    chute: { x: ox + 153, top: GROUND_Y + 8, bottom: GROUND_Y + 124, w: 6 },
     goblin: { x: cx - 26, y: cy + 24 },
-    pot: { x: cx - 10, y: cy + 10 },
+    pot: { x: cx - 10, y: cy + 24 - STEAM_UP },
     lantern: { x: cx + 18, y: cy - 2 },
     moon: { x: ox + 84, y: 30 },
   };
-  return titleCache;
 }
 
 // ---------------------------------------------------------------- intro panels
 
 export interface PanelInfo {
   canvas: HTMLCanvasElement;
-  /** Points of interest for the animation layer. */
-  marks: Record<string, [number, number]>;
+  /** Points (x, y) and spans the animation layer uses; see BACKDROP_MARKS. */
+  marks: Marks;
+  bells: Bell[];
+  /** A generated painting: it holds still, since zooming would smear its pixels. */
+  painted: boolean;
+  /** The light map's darkness. */
+  ambient: string;
 }
 
 const panels = new Map<PanelArt, PanelInfo>();
 
 export function panelArt(id: PanelArt): PanelInfo {
-  const cached = panels.get(id);
-  if (cached) return cached;
+  let info = panels.get(id);
+  if (!info) {
+    info = paintedPanel(id) ?? codePanel(id);
+    panels.set(id, info);
+  }
+  return info;
+}
+
+/** Notices and charters sit in warm lamplight; everywhere else is the cool dark of the dungeon. */
+const codeAmbient = (id: PanelArt): string => (id === 'notice' || id === 'charter' ? '#5a4a40' : '#56506a');
+
+function paintedPanel(id: PanelArt): PanelInfo | null {
+  const p = painting(id);
+  if (!p) return null;
+  return { canvas: p.canvas, marks: p.def.marks, bells: paintedBells(p.canvas, p.def.marks), painted: true, ambient: p.def.ambient ?? codeAmbient(id) };
+}
+
+function codePanel(id: PanelArt): PanelInfo {
   const W = 480;
   const H = 270;
-  const marks: Record<string, [number, number]> = {};
+  const marks: Record<string, number[]> = {};
+  let bells: [number, number][] = [];
   const canvas = art(`backdrop:intro:${id}`, W, H, (p) => {
     switch (id) {
       case 'city': {
@@ -216,10 +354,10 @@ export function panelArt(id: PanelArt): PanelInfo {
         p.ellipse(380, 46, 16, 16, '#f0e8c8');
         p.ellipse(385, 43, 13, 13, '#e0d4b0');
         skyline(p, 186, W, '#2a2034', '#7a5040');
-        const bells = skyline(p, 200, W);
-        bells.forEach((b, i) => (marks[`bell${i}`] = b));
+        bells = skyline(p, 200, W);
         cobbles(p, 200, W);
         p.rect(0, 208, W, H - 208, '#1a1614');
+        marks.moon = [380, 46];
         break;
       }
       case 'chute': {
@@ -237,7 +375,10 @@ export function panelArt(id: PanelArt): PanelInfo {
         pipe(p, 254, W, 110, true);
         p.softEllipse(240, 268, 70, 30, '#1e3a22');
         p.softEllipse(240, 268, 36, 16, '#2e5a32');
-        marks.chute = [240, 50];
+        // x, top, bottom, width: rubbish falls the whole height of the panel.
+        marks.chute = [240, 46, H, 20];
+        marks.sky = [240, 40];
+        marks.glow = [240, 268];
         break;
       }
       case 'heroes': {
@@ -256,7 +397,8 @@ export function panelArt(id: PanelArt): PanelInfo {
         p.speckle(30, 220, 120, 30, '#8a9096', 50);
         p.speckle(30, 220, 120, 30, '#9a5a30', 30);
         marks.eyes = [96, 224];
-        marks.party = [300, 160];
+        // Where the party starts walking left from, at its feet.
+        marks.party = [380, 188];
         break;
       }
       case 'alcove': {
@@ -264,6 +406,10 @@ export function panelArt(id: PanelArt): PanelInfo {
         pipe(p, 0, W, 30);
         alcove(p, 240, 160, false);
         marks.goblin = [214, 188];
+        // The holes in the back wall, and drips falling from x between two heights.
+        marks.hole0 = [200, 142];
+        marks.hole1 = [262, 142];
+        for (let i = 0; i < 3; i++) marks[`drip${i}`] = [200 + i * 34, 132, 182];
         break;
       }
       case 'notice': {
@@ -285,7 +431,5 @@ export function panelArt(id: PanelArt): PanelInfo {
       }
     }
   });
-  const info = { canvas, marks };
-  panels.set(id, info);
-  return info;
+  return { canvas, marks, bells: bells.map(([x, y]) => ({ x, y, w: 0, h: 0 })), painted: false, ambient: codeAmbient(id) };
 }

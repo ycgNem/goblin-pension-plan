@@ -5,7 +5,7 @@ import { ITEMS, type ItemId } from '../data/items';
 import { packCount } from '../game/inventory';
 import type { SaveData } from '../game/save';
 import { cantBuy, demandLeft, sellable, sellPrice, shopDesc, shopName, shopStock, type ShopEntry } from '../game/trade';
-import { BUTTON_ICON, DECOR_ICONS, LOCK_ICON } from '../render/art/icons';
+import { BUTTON_ICON, hasIcon, LOCK_ICON } from '../render/art/icons';
 import { portrait } from '../render/art/portraits';
 import type { Hud } from './hud';
 import { backPressed, cursor, heading, keyHints, ListNav, UI, type Overlay } from './overlay';
@@ -76,7 +76,7 @@ export class TradeOverlay implements Overlay {
 
   draw(hud: Hud, time: number): void {
     const w = 404;
-    const h = 214;
+    const h = 234;
     const x = Math.round((VIEW_W - w) / 2);
     const y = Math.round((VIEW_H - h) / 2) - 8;
     hud.fade(0.35);
@@ -120,20 +120,20 @@ export class TradeOverlay implements Overlay {
       hud.text('Nothing to sell. Make something, then come back.', x, y + 14, { size: 8, color: UI.dim });
       return;
     }
-    const rows = 9;
+    const rows = 8;
     const start = Math.max(0, Math.min(this.nav.index - rows + 2, list.length - rows));
     for (let i = 0; i < start; i++) this.nav.place({ x: -99, y: -99, w: 0, h: 0 });
     list.slice(start, start + rows).forEach((id, k) => {
       const i = start + k;
-      const ry = y + 12 + k * 15;
-      this.nav.place({ x, y: ry - 2, w, h: 15 });
+      const ry = y + 15 + k * 17;
+      this.nav.place({ x, y: ry - 5, w, h: 17 });
       const on = i === this.nav.index;
       if (on) {
-        hud.fill(x, ry - 2, w, 14, 'rgba(240, 160, 64, 0.14)');
+        hud.fill(x, ry - 5, w, 16, 'rgba(240, 160, 64, 0.14)');
         cursor(hud, x - 7, ry + 2, time);
       }
-      hud.icon(id, x + 2, ry);
-      hud.text(`${ITEMS[id].name}  ×${packCount(this.save, id)}`, x + 16, ry + 1, { size: 8, color: on ? UI.text : '#d8d4c4' });
+      hud.icon(id, x + 1, ry - 4);
+      hud.text(`${ITEMS[id].name}  ×${packCount(this.save, id)}`, x + 20, ry + 1, { size: 8, color: on ? UI.text : '#d8d4c4' });
       const price = sellPrice(this.save, id);
       const processed = HATCH_BUYS[id] !== undefined;
       hud.sprite(BUTTON_ICON, x + w - 82, ry + 1);
@@ -142,7 +142,7 @@ export class TradeOverlay implements Overlay {
     });
     const sel = list[this.nav.index];
     if (sel && HATCH_BUYS[sel] && demandLeft(this.save, sel) === 0) {
-      hud.text('She has enough of those for this shift.', x, y + 12 + Math.min(rows, list.length) * 15 + 2, { size: 7, color: UI.warn });
+      hud.text('She has enough of those for this shift.', x, y + 15 + Math.min(rows, list.length) * 17 - 1, { size: 7, color: UI.warn });
     }
   }
 
@@ -154,19 +154,17 @@ export class TradeOverlay implements Overlay {
       return;
     }
     stock.forEach((e, i) => {
-      const ry = y + 12 + i * 15;
-      this.nav.place({ x, y: ry - 2, w, h: 15 });
+      const ry = y + 15 + i * 17;
+      this.nav.place({ x, y: ry - 5, w, h: 17 });
       const on = i === this.nav.index;
       const why = cantBuy(this.save, e);
       if (on) {
-        hud.fill(x, ry - 2, w, 14, 'rgba(240, 160, 64, 0.14)');
+        hud.fill(x, ry - 5, w, 16, 'rgba(240, 160, 64, 0.14)');
         cursor(hud, x - 7, ry + 2, time);
       }
-      const decor = e.kind === 'decor' ? DECOR_ICONS[e.id] : undefined;
-      if (e.kind === 'item') hud.icon(e.id, x + 2, ry);
-      else if (decor) hud.sprite(decor, x + 2, ry);
-      else hud.fill(x + 3, ry + 1, 8, 8, '#8a6a40');
-      hud.text(shopName(e) + (e.kind === 'decor' ? '  (decoration)' : ''), x + 16, ry + 1, { size: 8, color: why ? UI.dim : on ? UI.text : '#d8d4c4' });
+      if (hasIcon(e.id)) hud.icon(e.id, x + 1, ry - 4);
+      else hud.fill(x + 4, ry - 1, 10, 10, '#8a6a40');
+      hud.text(shopName(e) + (e.kind === 'decor' ? '  (decoration)' : ''), x + 20, ry + 1, { size: 8, color: why ? UI.dim : on ? UI.text : '#d8d4c4' });
       hud.sprite(BUTTON_ICON, x + w - 32, ry + 1);
       hud.text(String(e.price), x + w - 4, ry + 1, { size: 8, color: this.save.buttons >= e.price ? '#f0d070' : UI.bad, align: 'right' });
       if (why && why !== 'Not enough buttons') hud.sprite(LOCK_ICON, x + w - 44, ry + 1);
@@ -174,7 +172,7 @@ export class TradeOverlay implements Overlay {
     const sel = stock[this.nav.index];
     if (sel) {
       const why = cantBuy(this.save, sel);
-      const dy = y + 12 + stock.length * 15 + 4;
+      const dy = y + 15 + stock.length * 17;
       hud.text(shopDesc(sel), x, dy, { size: 7, color: UI.dim });
       if (why) hud.text(why, x, dy + 10, { size: 7, color: UI.bad });
     }

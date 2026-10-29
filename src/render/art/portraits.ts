@@ -1,6 +1,11 @@
 import { art, type Painter } from '../paint';
+import { artImage } from './assets';
+import type { PortraitArtDef } from './sheet-types';
+import { PORTRAIT_ART } from './sheets.gen';
 
 // Dialogue portraits, 40x40. Each has four frames: mouth open or shut, eyes open or blinking.
+// Generated busts come from portraits.png with the mouth and blink drawn over them; the painted
+// ones below are the fallback.
 
 export type PortraitId = 'grubb' | 'dorrit' | 'unionRat' | 'aldous' | 'wren' | 'pemberton' | 'hobb' | 'guard';
 
@@ -268,7 +273,26 @@ const DRAW: Record<PortraitId, Drawer> = {
   },
 };
 
-/** The portrait canvas for one frame. */
+/** The portrait canvas for one frame: the generated bust when it has loaded, else the painted one. */
 export function portrait(id: PortraitId, mouthOpen: boolean, blink: boolean): HTMLCanvasElement {
-  return art(`portrait:${id}:${mouthOpen ? 1 : 0}${blink ? 1 : 0}`, PORTRAIT_SIZE, PORTRAIT_SIZE, (p) => DRAW[id](p, mouthOpen, blink));
+  const key = `${id}:${mouthOpen ? 1 : 0}${blink ? 1 : 0}`;
+  const gen: PortraitArtDef | undefined = (PORTRAIT_ART as Partial<Record<PortraitId, PortraitArtDef>>)[id];
+  const img = artImage('portraits.png');
+  if (gen && img) {
+    return art(`portraitgen:${key}`, PORTRAIT_SIZE, PORTRAIT_SIZE, (p) => {
+      p.ctx.drawImage(img, gen.x, 0, PORTRAIT_SIZE, PORTRAIT_SIZE, 0, 0, PORTRAIT_SIZE, PORTRAIT_SIZE);
+      const [mx, my, mw] = gen.mouth;
+      if (mouthOpen) {
+        p.rect(mx, my, mw, 2, '#3a1418');
+        p.hline(mx + 1, my + 1, Math.max(1, mw - 2), '#6a2a2a');
+      }
+      if (blink) {
+        for (const [ex, ey, ew, eh] of gen.eyes) {
+          p.rect(ex, ey, ew, eh, gen.lid);
+          p.hline(ex, ey + eh - 1, ew, '#2a1e1a');
+        }
+      }
+    });
+  }
+  return art(`portrait:${key}`, PORTRAIT_SIZE, PORTRAIT_SIZE, (p) => DRAW[id](p, mouthOpen, blink));
 }

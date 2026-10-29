@@ -1,7 +1,8 @@
 import { clamp } from '../core/math';
 import { VIEW_H, VIEW_W } from '../core/screen';
 import type { ItemId } from '../data/items';
-import { ITEM_ICONS } from '../render/art/icons';
+import type { UpgradeId } from '../data/upgrades';
+import { drawIcon } from '../render/art/icons';
 import { PAL } from '../render/palette';
 import { sprite, type SpriteDef } from '../render/sprites';
 
@@ -190,8 +191,9 @@ export class Hud {
     sprite(def).draw(this.px, frame, x, y, { ...opts, alpha: this.alpha < 1 ? this.alpha : undefined });
   }
 
-  icon(item: ItemId, x: number, y: number): void {
-    this.sprite(ITEM_ICONS[item], x, y);
+  /** An item or decoration icon in the 16x16 box at (x, y). */
+  icon(id: ItemId | UpgradeId, x: number, y: number): void {
+    drawIcon(this.px, id, x, y, this.alpha < 1 ? this.alpha : undefined);
   }
 
   /** Pixel hearts, two half-hearts each. A half heart fills its left side. */

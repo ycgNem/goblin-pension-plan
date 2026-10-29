@@ -169,7 +169,7 @@ export class MenuOverlay implements Overlay {
       hud.panel(r.x, r.y, r.w, r.h, on ? 'light' : 'inset');
       if (on && Math.floor(time * 3) % 2 === 0) hud.fill(r.x + 1, r.y + r.h - 2, r.w - 2, 1, UI.gold);
       if (!id) return;
-      hud.icon(id, r.x + Math.floor(r.w / 2) - 5, r.y + Math.floor(r.h / 2) - 6);
+      hud.icon(id, r.x + Math.floor(r.w / 2) - 8, r.y + Math.floor(r.h / 2) - 8);
       const qty = i < slots ? this.save.pack[i]?.qty ?? 0 : this.save.keyItems[id] ?? 0;
       if (i < slots || qty > 1) hud.text(String(qty), r.x + r.w - 2, r.y + r.h - 10, { size: 7, align: 'right', edge: 'outline' });
       if (this.save.equippedMod === id || this.save.readyThrow === id) hud.fill(r.x + 2, r.y + 2, 3, 3, UI.good);
@@ -186,8 +186,8 @@ export class MenuOverlay implements Overlay {
       return;
     }
     const def: ItemDef = ITEMS[id];
-    hud.icon(id, dx + 8, Y + 40);
-    hud.text(def.name, dx + 22, Y + 40, { size: 8, color: UI.gold });
+    hud.icon(id, dx + 6, Y + 37);
+    hud.text(def.name, dx + 26, Y + 41, { size: 8, color: UI.gold });
     hud.text(def.category.toUpperCase(), dx + dw - 8, Y + 41, { font: 'head', size: 6, color: UI.faint, align: 'right' });
     let cy = Y + 56;
     for (const l of hud.wrap(def.desc, dw - 16, 8)) {

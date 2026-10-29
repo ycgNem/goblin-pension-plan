@@ -7,6 +7,7 @@ import { Input } from './core/input';
 import { startLoop } from './core/loop';
 import { Screen } from './core/screen';
 import type { Game } from './game/game';
+import { loadArt } from './render/art/assets';
 
 declare global {
   interface Window {
@@ -28,7 +29,7 @@ async function loadFonts(): Promise<void> {
 }
 
 async function boot(): Promise<void> {
-  await loadFonts();
+  await Promise.all([loadFonts(), loadArt()]);
   const screen = new Screen(
     document.getElementById('game') as HTMLCanvasElement,
     document.getElementById('ui') as HTMLCanvasElement,

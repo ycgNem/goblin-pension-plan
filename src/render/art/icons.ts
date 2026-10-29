@@ -1,7 +1,13 @@
 import type { ItemId } from '../../data/items';
-import type { SpriteDef } from '../sprites';
+import { sprite, type SpriteDef } from '../sprites';
+import { artImage } from './assets';
+import { ICON_ART } from './sheets.gen';
 
-// Item icons, 10x10, light from the top left. 'o' is always the outline.
+// Item icons, 10x10, light from the top left. 'o' is always the outline. These are the fallback
+// for the generated 16x16 icons on icons.png; every layout gives an icon a 16x16 box.
+
+/** The box every icon is drawn in. */
+export const ICON = 16;
 
 const O = '#141410';
 
@@ -121,6 +127,26 @@ export const DECOR_ICONS: Partial<Record<string, SpriteDef>> = {
 };
 
 /** A Brass Button, the currency. */
+/** Whether an item or decoration has an icon, generated or drawn. */
+export function hasIcon(id: string): boolean {
+  return id in ICON_ART || id in ITEM_ICONS || DECOR_ICONS[id] !== undefined;
+}
+
+/** An item or decoration icon in the 16x16 box at (x, y): the generated one, or the 10x10 one centered. */
+export function drawIcon(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, alpha?: number): void {
+  const col: number | undefined = (ICON_ART as Record<string, number>)[id];
+  const img = artImage('icons.png');
+  if (col !== undefined && img) {
+    const prev = ctx.globalAlpha;
+    if (alpha !== undefined) ctx.globalAlpha = alpha;
+    ctx.drawImage(img, col * ICON, 0, ICON, ICON, Math.round(x), Math.round(y), ICON, ICON);
+    ctx.globalAlpha = prev;
+    return;
+  }
+  const def = (ITEM_ICONS as Partial<Record<string, SpriteDef>>)[id] ?? DECOR_ICONS[id];
+  if (def) sprite(def).draw(ctx, 0, Math.round(x) + 3, Math.round(y) + 3, { alpha });
+}
+
 export const BUTTON_ICON: SpriteDef = {
   w: 8, h: 8, anchor: [0, 0],
   palette: { o: O, Y: '#f0d070', y: '#c8a040', D: '#8a6a20', W: '#fff4c0' },

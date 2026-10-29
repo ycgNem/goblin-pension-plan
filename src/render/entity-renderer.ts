@@ -15,10 +15,13 @@ import type { Pickup, Scene, StinkCloud, WorldObject } from '../game/scene';
 import { lineOfSight } from '../world/sight';
 import { TILE } from '../world/tiles';
 import { GOBLIN, GRUBB, HUMAN_PALETTES, humanSprite, MITE, RAT, SLIME, SLIMELET } from './art/characters';
-import { AWARE_ICONS, ITEM_ICONS } from './art/icons';
-import { drawProp, propSilhouette } from './art/props';
+import { AWARE_ICONS, drawIcon } from './art/icons';
+import { drawProp, propBoard, propSilhouette } from './art/props';
+import { SHEETS } from './art/sheets.gen';
 import type { View } from './lighting';
 import { PAL } from './palette';
+import type { SheetDef } from './art/sheet-types';
+import { sheet, type SheetSprite } from './sheet';
 import { pixelEllipse, pixelLine, sprite, type SpriteDef } from './sprites';
 
 /** Windup blink. Distinct from the pure-white hit flash. */
@@ -208,7 +211,6 @@ function objectArt(o: WorldObject, s: WorldDrawState): { art: string; variant: s
 
 function drawObject(ctx: CanvasRenderingContext2D, o: WorldObject, s: WorldDrawState, focused: boolean): void {
   if (o.kind === 'npc' && o.id === 'grubb') drawGrubb(ctx, o.x, o.y - 4, s.time);
-  if (o.kind === 'npc' && o.id === 'hatch') drawDorrit(ctx, o.x, o.y, s.time);
   const a = objectArt(o, s);
   if (!a) return;
   const wobble = o.shake > 0 ? Math.round(Math.sin(o.shake * 60) * 1) : 0;
@@ -223,6 +225,8 @@ function drawObject(ctx: CanvasRenderingContext2D, o: WorldObject, s: WorldDrawS
   if (spent) ctx.globalAlpha = 0.55;
   drawProp(ctx, a.art, a.variant, x, y);
   if (spent) ctx.globalAlpha = 1;
+  // Dorrit leans in the hatch window, over its dark opening.
+  if (o.kind === 'npc' && o.id === 'hatch') drawDorrit(ctx, o.x, o.y, s.time);
 
   // Extras that change with the Burrow.
   if (o.kind === 'station') {
@@ -353,7 +357,65 @@ function goblinFrame(aim: number, moving: boolean, stride: number): { frame: num
   return { frame: (Math.sin(aim) < 0 ? 3 : 0) + step, flip: false };
 }
 
+/** Which way a sheet character faces for an angle: south, north, or east (west is east mirrored). */
+function facing(angle: number): { dir: 's' | 'n' | 'e'; flip: boolean } {
+  if (Math.abs(Math.cos(angle)) >= 0.62) return { dir: 'e', flip: Math.cos(angle) < 0 };
+  return { dir: Math.sin(angle) < 0 ? 'n' : 's', flip: false };
+}
+
+/** World pixels from the goblin's feet up to the hand that holds the launcher. */
+const GOBLIN_HAND = 7;
+
 function drawGoblin(ctx: CanvasRenderingContext2D, p: Player, s: WorldDrawState): void {
+  const art = sheet(SHEETS.goblin);
+  if (!art.ready) {
+    drawGoblinFallback(ctx, p, s);
+    return;
+  }
+  const x = Math.round(p.x);
+  const y = Math.round(p.y);
+  drawShadow(ctx, x, y + 1, 6, 2);
+  if (s.goblinDown || s.asleep) {
+    art.draw(ctx, 'ko', art.frames('ko') - 1, x, y, { flip: s.asleep });
+    return;
+  }
+  if (s.goblinHidden) return;
+  // Blink while invulnerable after a hit.
+  if (p.health.invuln > 0 && !p.rolling && Math.floor(s.time * 16) % 2 === 0) return;
+  const silhouette = p.hurtT < 0.08 ? HIT_FLASH : undefined;
+  const moving = Math.hypot(p.vx, p.vy) > 10;
+
+  if (p.rolling) {
+    const f = facing(Math.atan2(p.vy, p.vx));
+    const clip = `roll_${f.dir}`;
+    if (art.has(clip)) art.draw(ctx, clip, Math.floor(p.rollProgress * art.frames(clip)), x, y, { flip: f.flip, silhouette });
+    else art.draw(ctx, `walk_${f.dir}`, Math.floor(p.rollProgress * 12), x, y, { flip: f.flip, silhouette });
+    return;
+  }
+
+  const f = facing(p.aim);
+  const clip = p.sneaking ? `sneak_${f.dir}` : moving ? `walk_${f.dir}` : `idle_${f.dir}`;
+  // Walk cycles advance with distance (6px a frame), so feet don't slide; idle breathes on the clock.
+  const frame = moving ? Math.floor(p.stride / 6) : p.sneaking ? 0 : Math.floor(s.time * 4);
+  const behind = Math.sin(p.aim) < -0.3;
+  if (behind) drawLauncher(ctx, p, x, y - GOBLIN_HAND + 4);
+  art.draw(ctx, clip, frame, x, y, { flip: f.flip, silhouette, alpha: p.sneaking ? 0.82 : undefined });
+  if (!behind) drawLauncher(ctx, p, x, y - GOBLIN_HAND + 4);
+  drawChargeGlow(ctx, p, x, y - GOBLIN_HAND + 4, s.time);
+}
+
+function drawChargeGlow(ctx: CanvasRenderingContext2D, p: Player, x: number, y: number, time: number): void {
+  if (p.charge <= 0) return;
+  const k = p.charge / CHARGED_SHOT.chargeTime;
+  const size = k >= 1 ? 3 : 1 + Math.floor(k * 2);
+  ctx.fillStyle = k >= 1 && Math.floor(time * 20) % 2 === 0 ? '#ffffff' : PAL.homeGlow;
+  const mx = Math.round(x + Math.cos(p.aim) * 11);
+  const my = Math.round(y - 4 + Math.sin(p.aim) * 11);
+  ctx.fillRect(mx - Math.floor(size / 2), my - Math.floor(size / 2), size, size);
+}
+
+/** The original string-sprite goblin, for when the sheet isn't loaded. */
+function drawGoblinFallback(ctx: CanvasRenderingContext2D, p: Player, s: WorldDrawState): void {
   const x = Math.round(p.x);
   const y = Math.round(p.y);
   const g = sprite(GOBLIN);
@@ -380,15 +442,7 @@ function drawGoblin(ctx: CanvasRenderingContext2D, p: Player, s: WorldDrawState)
   if (behind) drawLauncher(ctx, p, x, y + crouch);
   g.draw(ctx, frame, x, y + bob + crouch, { flip, silhouette: flash, alpha: p.sneaking ? 0.82 : undefined });
   if (!behind) drawLauncher(ctx, p, x, y + crouch);
-
-  if (p.charge > 0) {
-    const k = p.charge / CHARGED_SHOT.chargeTime;
-    const size = k >= 1 ? 3 : 1 + Math.floor(k * 2);
-    ctx.fillStyle = k >= 1 && Math.floor(s.time * 20) % 2 === 0 ? '#ffffff' : PAL.homeGlow;
-    const mx = Math.round(x + Math.cos(p.aim) * 11);
-    const my = Math.round(y - 4 + Math.sin(p.aim) * 11);
-    ctx.fillRect(mx - Math.floor(size / 2), my - Math.floor(size / 2), size, size);
-  }
+  drawChargeGlow(ctx, p, x, y, s.time);
 }
 
 /** The Scrap Launcher: a stubby tube that points where you aim. */
@@ -407,7 +461,21 @@ function drawLauncher(ctx: CanvasRenderingContext2D, p: Player, x: number, y: nu
   ctx.fillRect(Math.round(tx) - 1, Math.round(ty) - 1, 2, 2);
 }
 
+/** A generated sheet by name (characters are named by id: 'paladin', 'grubb', 'rat'), if it's packed and loaded. */
+function sheetFor(id: string): SheetSprite | null {
+  const def = (SHEETS as Record<string, SheetDef | undefined>)[id];
+  if (!def) return null;
+  const s = sheet(def);
+  return s.ready ? s : null;
+}
+
 function drawGrubb(ctx: CanvasRenderingContext2D, x: number, y: number, time: number): void {
+  const art = sheetFor('grubb');
+  if (art) {
+    // Breathing behind his desk; the eyeshade and spectacles are part of the sprite now.
+    art.draw(ctx, 'idle_s', Math.floor(time * 3), x, y + 1);
+    return;
+  }
   const g = sprite(GRUBB);
   const breathe = Math.floor(time * 1.2) % 2;
   g.draw(ctx, 0, x, y - breathe);
@@ -425,13 +493,90 @@ function drawGrubb(ctx: CanvasRenderingContext2D, x: number, y: number, time: nu
 
 function drawDorrit(ctx: CanvasRenderingContext2D, x: number, y: number, time: number): void {
   // Leaning in the hatch window. Only head and shoulders show.
+  const win = propBoard('hatch') ?? { x: -9, y: -16, w: 18, h: 10 };
   ctx.save();
   ctx.beginPath();
-  ctx.rect(Math.round(x) - 9, Math.round(y) - 16, 18, 10);
+  ctx.rect(Math.round(x) + win.x, Math.round(y) + win.y, win.w, win.h);
   ctx.clip();
   const lean = Math.sin(time * 0.7) > 0.6 ? 1 : 0;
-  sprite(HUMAN_SPRITES.dorrit).draw(ctx, 0, x + lean, y + 6);
+  const art = sheetFor('dorrit');
+  if (art) art.draw(ctx, 'idle_s', Math.floor(time * 3), x + lean, y + 14);
+  else sprite(HUMAN_SPRITES.dorrit).draw(ctx, 0, x + lean, y + 6);
   ctx.restore();
+}
+
+const DIR8 = ['e', 'se', 's', 'sw', 'w', 'nw', 'n', 'ne'] as const;
+
+/** The 8-way facing for an angle. West-side views are the east-side ones mirrored. */
+function facing8(angle: number): { dir: 'e' | 'se' | 's' | 'ne' | 'n'; flip: boolean } {
+  const d = DIR8[((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8]!;
+  if (d === 'w') return { dir: 'e', flip: true };
+  if (d === 'sw') return { dir: 'se', flip: true };
+  if (d === 'nw') return { dir: 'ne', flip: true };
+  return { dir: d, flip: false };
+}
+
+/**
+ * Beetles and the Pump Matron from 8-direction sheets, centered on the shell. Their armored front
+ * is in the art; a sealed shell gets its rear plates drawn on. False when there's no sheet (or no
+ * belly-up clip for a stun), so the procedural shell draws instead.
+ */
+function drawShellSheet(ctx: CanvasRenderingContext2D, c: Creature, x: number, y: number, silhouette: string | undefined): boolean {
+  const art = sheetFor(c.def.behavior);
+  if (!art) return false;
+  const big = c.def.behavior === 'matron';
+  const r = c.radius;
+  const cy = y - 2;
+  if (c.state === 'stunned') {
+    if (!art.has('flipped')) return false;
+    drawShadow(ctx, x, y + r * 0.8 - 3, r + 1, big ? 4 : 2);
+    art.draw(ctx, 'flipped', c.age * 14, x, cy, { silhouette });
+    return true;
+  }
+  const f = facing8(c.face);
+  const moving = Math.hypot(c.vx, c.vy) > 6;
+  const walk = `walk_${f.dir}`;
+  drawShadow(ctx, x, y + r * 0.8 - 3, r + 1, big ? 4 : 2);
+  if (moving && art.has(walk)) art.draw(ctx, walk, c.age * (big ? 8 : 12), x, cy, { flip: f.flip, silhouette });
+  else art.draw(ctx, `idle_${f.dir}`, 0, x, cy, { flip: f.flip, silhouette });
+  if (c.sealed && !silhouette) {
+    // Phase two: plates bolted over the soft rear.
+    const back = c.face + Math.PI;
+    for (const a of [-0.55, -0.2, 0.2, 0.55]) {
+      const px = Math.round(x + Math.cos(back + a) * r * 0.62);
+      const py = Math.round(cy + Math.sin(back + a) * r * 0.5);
+      ctx.fillStyle = '#2a2420';
+      ctx.fillRect(px - 2, py - 1, 4, 3);
+      ctx.fillStyle = '#9aa0a6';
+      ctx.fillRect(px - 1, py - 1, 3, 2);
+      ctx.fillStyle = '#d8dce0';
+      ctx.fillRect(px - 1, py - 1, 1, 1);
+    }
+  }
+  return true;
+}
+
+/** Small creatures from sheets. False if this one has no sheet yet, so the string sprite draws. */
+function drawCreatureSheet(ctx: CanvasRenderingContext2D, c: Creature, x: number, y: number, silhouette: string | undefined): boolean {
+  const art = sheetFor(c.def.behavior);
+  if (!art) return false;
+  const moving = Math.hypot(c.vx, c.vy) > 12;
+  switch (c.def.behavior) {
+    case 'rat':
+      // Drawn side-on facing right, mirrored to face left.
+      art.draw(ctx, 'run', moving ? c.age * 14 : 0, x, y + 3, { flip: Math.cos(c.face) < 0, silhouette });
+      return true;
+    case 'mite':
+      // Seen from above, head down: mirrored top to bottom when it heads north.
+      art.draw(ctx, 'run', moving ? c.age * 16 : 0, x, y - 1, { flipY: Math.sin(c.face) < 0, silhouette });
+      return true;
+    case 'slime':
+    case 'slimelet':
+      art.draw(ctx, 'idle', c.age * (c.state === 'windup' ? 14 : 7), x, y + c.radius, { silhouette });
+      return true;
+    default:
+      return false;
+  }
 }
 
 function drawCreature(ctx: CanvasRenderingContext2D, c: Creature, time: number): void {
@@ -443,6 +588,14 @@ function drawCreature(ctx: CanvasRenderingContext2D, c: Creature, time: number):
   const x = Math.round(c.x) + shiver;
   const y = Math.round(c.y);
   const flip = Math.cos(c.face) < 0;
+  if (drawCreatureSheet(ctx, c, x, y, silhouette)) {
+    if (c.slowT > 0) {
+      ctx.fillStyle = FX.gel;
+      ctx.fillRect(x - 1, y - c.radius - 4, 2, 2);
+      ctx.fillRect(x + 3, y - c.radius - 2, 1, 1);
+    }
+    return;
+  }
   switch (c.def.behavior) {
     case 'rat': {
       const moving = Math.hypot(c.vx, c.vy) > 12;
@@ -460,7 +613,7 @@ function drawCreature(ctx: CanvasRenderingContext2D, c: Creature, time: number):
       break;
     case 'beetle':
     case 'matron':
-      drawShellBeast(ctx, c, x, y, time, silhouette);
+      if (!drawShellSheet(ctx, c, x, y, silhouette)) drawShellBeast(ctx, c, x, y, time, silhouette);
       break;
     default:
       ctx.fillStyle = silhouette ?? c.def.color;
@@ -476,6 +629,26 @@ function drawCreature(ctx: CanvasRenderingContext2D, c: Creature, time: number):
 function drawHuman(ctx: CanvasRenderingContext2D, h: Human, time: number): void {
   const x = Math.round(h.x);
   const y = Math.round(h.y);
+  const art = sheetFor(h.id);
+  if (art) {
+    drawShadow(ctx, x, y + 1, 7, 2);
+    const f = facing(h.face);
+    const moving = Math.hypot(h.vx, h.vy) > 8;
+    const winding = h.attack === 'windup';
+    const attack = `attack_${f.dir}`;
+    const windup = h.def.attack?.windup ?? 1;
+    let clip = moving ? `walk_${f.dir}` : `idle_${f.dir}`;
+    let frame = moving ? h.age * 8 : time * 4 + h.x;
+    if ((winding || h.attack === 'active') && art.has(attack)) {
+      clip = attack;
+      frame = winding ? Math.min(art.frames(attack) - 1, (h.attackT / windup) * art.frames(attack)) : art.frames(attack) - 1;
+    }
+    // Gear is part of each sprite now. A windup blinks, like the creatures', over the telegraph.
+    const blink = winding && Math.floor(h.attackT * 14) % 2 === 0;
+    const silhouette = h.flash > 0 ? HIT_FLASH : blink ? TELEGRAPH : undefined;
+    art.draw(ctx, clip, frame, x, y + 1, { flip: f.flip, silhouette, alpha: h.retreating ? 0.85 : undefined });
+    return;
+  }
   drawShadow(ctx, x, y + 2, 6, 2);
   const side = Math.abs(Math.cos(h.face)) >= 0.55;
   const moving = Math.hypot(h.vx, h.vy) > 8;
@@ -543,8 +716,8 @@ function drawGear(ctx: CanvasRenderingContext2D, h: Human, x: number, y: number,
 
 function drawPickup(ctx: CanvasRenderingContext2D, p: Pickup, time: number): void {
   const bob = p.z === 0 ? Math.round(Math.sin(time * 4 + p.x) * 1) : 0;
-  drawShadow(ctx, p.x, p.y + 2, 3, 1);
-  sprite(ITEM_ICONS[p.item]).draw(ctx, 0, Math.round(p.x) - 5, Math.round(p.y - p.z) - 7 + bob);
+  drawShadow(ctx, p.x, p.y + 2, 4, 1);
+  drawIcon(ctx, p.item, Math.round(p.x) - 8, Math.round(p.y - p.z) - 12 + bob);
 }
 
 function drawProjectile(ctx: CanvasRenderingContext2D, p: Projectile): void {

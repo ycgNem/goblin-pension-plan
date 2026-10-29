@@ -149,7 +149,7 @@ export function drawTracked(hud: Hud, save: SaveData): PanelRect | null {
   const name = r ? r.name : UPGRADES[t.id as keyof typeof UPGRADES].name;
   const cost: ItemBag = r ? r.inputs : UPGRADES[t.id as keyof typeof UPGRADES].cost;
   const items = Object.keys(cost) as ItemId[];
-  const h = 16 + items.length * 11;
+  const h = 18 + items.length * 17;
   const w = 150;
   const y = 46;
   hud.panel(4, y, w, h);
@@ -157,12 +157,12 @@ export function drawTracked(hud: Hud, save: SaveData): PanelRect | null {
   items.forEach((id, i) => {
     const need = cost[id] ?? 0;
     const have = haveCount(save, id, true);
-    const iy = y + 14 + i * 11;
-    hud.icon(id, 8, iy - 1);
+    const iy = y + 18 + i * 17;
+    hud.icon(id, 7, iy - 4);
     const done = have >= need;
-    hud.text(`${Math.min(have, need)}/${need}`, 21, iy, { size: 7, color: done ? UI.good : UI.bad });
-    if (done) hud.sprite(CHECK_ICON, 44, iy + 1);
-    else hud.text((ITEMS[id] as ItemDef).source ?? ITEMS[id].name, 44, iy, { size: 7, color: UI.dim });
+    hud.text(`${Math.min(have, need)}/${need}`, 26, iy, { size: 7, color: done ? UI.good : UI.bad });
+    if (done) hud.sprite(CHECK_ICON, 49, iy + 1);
+    else hud.text((ITEMS[id] as ItemDef).source ?? ITEMS[id].name, 49, iy, { size: 7, color: UI.dim });
   });
   return { x: 4, y, w, h };
 }
@@ -183,16 +183,16 @@ export function drawThrowable(hud: Hud, kind: 'pebble' | 'bottle' | 'stinkbrew',
     hud.text('pebble', kx + 8, y + 1, { size: 7, color: UI.faint, edge: 'outline' });
     return kx + 8 + Math.ceil(hud.measure('pebble', 7));
   }
-  hud.icon(kind, kx, y);
+  hud.icon(kind, kx - 2, y - 3);
   const label = `×${count}`;
-  hud.text(label, kx + 12, y + 1, { size: 7, color: kind === 'stinkbrew' ? '#c8e070' : UI.text, edge: 'outline' });
-  return kx + 12 + Math.ceil(hud.measure(label, 7));
+  hud.text(label, kx + 15, y + 1, { size: 7, color: kind === 'stinkbrew' ? '#c8e070' : UI.text, edge: 'outline' });
+  return kx + 15 + Math.ceil(hud.measure(label, 7));
 }
 
 /** The launcher mod that's on, after the throwable. */
 export function drawMod(hud: Hud, mod: ItemId, x: number): void {
-  hud.icon(mod, x, 3);
-  hud.text(ITEMS[mod].name, x + 12, 4, { size: 7, color: '#b8d8f0', edge: 'outline' });
+  hud.icon(mod, x, 0);
+  hud.text(ITEMS[mod].name, x + 17, 4, { size: 7, color: '#b8d8f0', edge: 'outline' });
 }
 
 export function drawButtons(hud: Hud, buttons: number): void {

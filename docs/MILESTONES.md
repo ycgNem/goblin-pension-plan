@@ -232,6 +232,21 @@ A fresh critic played from the title screen to free play and filed 22 findings. 
 
 ---
 
+## Art overhaul track
+*Generated pixel art for every character, map, prop, icon, and portrait, within 350 PixelLab generations. Plan, style guide, and ledger: `docs/ART_PLAN.md`.*
+
+- [x] **A0 Pipeline:** `loadArt()`, `SheetSprite`, code-art fallbacks, the pack/fetch/contact scripts, and **(T)** `tests/art.test.ts`
+- [x] **A1 Style anchor:** the goblin at 24px with walk, idle, sneak, roll (3 directions) and knocked out; the launcher stays code-drawn
+- [ ] **A2 Terrain:** dual-grid floor, water, and wall layers for all five maps *(done)*; decal sheet; restyled pipes, gates, and exits
+- [x] **A3 Creatures:** rat, slime, slimelet, mite, beetle, Pump Matron (crawls and belly-up flips; no separate bite, lunge, or rearing animations yet)
+- [x] **A4 People:** Grubb, Dorrit, paladin (shield raise), ranger, apprentice (cast), inspector, guard
+- [x] **A5 Props and stations**, every Burrow upgrade state included: 40 props, 66 states, lettering drawn by code
+- [x] **A6 Icons and HUD:** 22 item and 3 decoration icons at 16px, with every list, chip, toast, card, and floor pickup laid out for them. The Brass Button and hearts stay code, sized to sit in text rows
+- [x] **A7 Portraits:** all eight busts, with talking and blinking drawn over them
+- [x] **A8 Title and intro:** a painted title (Bellmarket at dusk over the underground and the lit cave) and six painted intro panels; bells, rubbish, the party, drips, and lights animate on top, and the code backdrops stay as the fallback
+
+---
+
 ## Test checklist from the brief (tracked across milestones)
 
 | Requirement | Milestone | How it's checked |
